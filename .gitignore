@@ -15,7 +15,8 @@ release/
 *.log
 tests/results/
 tests/ui/results/
-memory/.index.sqlite
-memory/.index.sqlite-*
-memory/.write.lock
+# Local AI memory and personal agent setup are not part of public source releases.
+/memory/
+/AGENTS.md
+/scripts/mem.py
 scripts/.mem_api_key
