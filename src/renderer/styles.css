@@ -233,6 +233,9 @@ p, li, dd, small { text-wrap: pretty; }
 .attention-entry.has-items > svg { color: var(--warn); }
 .quota-mini { display: flex; flex-direction: column; gap: 3px; margin-top: 5px; max-width: 160px; }
 .quota-line { display: grid; grid-template-columns: 36px 57px 1fr; gap: 5px; align-items: center; color: var(--ink-3); font-size: var(--fs-xs); line-height: 1.2; }
+.quota-groups .quota-line { grid-template-columns: minmax(0, 1fr) auto; }
+.quota-groups .quota-line > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quota-groups .quota-line .quota-track { grid-column: 1 / -1; }
 .quota-track { display: block; height: 4px; min-width: 16px; overflow: hidden; border-radius: 4px; background: var(--line); }
 .quota-track i { display: block; height: 100%; border-radius: inherit; background: var(--m-ink, var(--accent)); transition: width .2s; }
 .quota-line.warning, .quota-detail.warning { color: var(--warn); }

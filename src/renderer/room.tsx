@@ -2,6 +2,7 @@ import {readableContent} from '../shared/content-presentation';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { ArrowDown, BookmarkPlus, Columns2, Copy, Download, MoreHorizontal, Reply, Unlink, Eraser, FileStack, Layers, LoaderCircle, MessageSquarePlus, MessagesSquare, Send, SmilePlus, Sparkles, StopCircle, Trash2 } from 'lucide-react';
 import type { Attachment, RoomHistory, RoomId, RoomMessage, RoomThread, Snapshot } from '../shared/types';
+import { MessageTokenUsage } from './token-usage';
 import type { PersonalRoomData } from '../shared/member-workspaces';
 import { DEFAULT_ROOM_THREAD, ROOM_REACTIONS, isRoomPass, roomMarkerPending, roomMentions, roomReaction } from '../shared/room';
 import { RoomPresence } from './discussion-status';
@@ -453,6 +454,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, split, fo
           {member ? <Avatar member={member} size={36} mood={message.status === 'speaking' ? 'working' : undefined} /> : <span className="room-retired-avatar" aria-hidden="true">{[...name(message)][0]}</span>}
           <div className="room-bubble-wrap"><span className="room-meta"><strong>{name(message)}</strong><time title={run ? effectiveConfigText(run.requestedConfig, run.effectiveConfig) : undefined}>{time(message.at)}</time>{personal && actual && <span className="room-model" title="这一轮实际使用的模型与思考程度">{actual}</span>}{message.inReplyTo && <span className="room-reply-to">回复 {messages.find(m => m.id === message.inReplyTo)?.authorName ?? '较早的消息'}</span>}{message.kind === 'summary' && <em>会议总结</em>}{message.status === 'failed' && <em className="room-failed">{unknown ? '结果待核对' : run?.delivery==='prepared' ? '未发送' : '回复失败'}</em>}{message.status === 'stopped' && <em>已停止</em>}</span>
             <div className={`room-bubble ${message.status === 'speaking' && !text ? 'typing' : ''} ${folded ? 'folded' : ''}`} onContextMenu={message.status === 'speaking' ? undefined : event => openMessageMenu(event, messageMenu(message, canReply))}>{text ? <Markdown text={text} /> : message.status === 'speaking' ? <span className="typing-dots"><i /><i /><i /></span> : <span className="room-silent">{silent}</span>}</div>
+            {message.runId && <MessageTokenUsage usage={run?.tokenUsage ?? message.tokenUsage} run={run} speaking={message.status === 'speaking'} />}
             {long && <button type="button" className="link-button room-fold-button" aria-expanded={!folded} onClick={() => setExpanded(previous => { const next = new Set(previous); if (next.has(message.id)) next.delete(message.id); else next.add(message.id); return next; })}>{folded ? '展开全文' : '收起'}</button>}
             {message.imageGeneration&&message.status==='speaking'&&!message.generatedImages?.length&&<small className="room-reply-note">正在生成图片，可以随时停止。</small>}
             <GeneratedImages images={message.generatedImages} invoke={invoke} onEdit={!archived&&!state.active&&canGenerateImage?image=>setImageDialog({text:draft,draftVersion:composer.version,attachments:[image]}):undefined}/>

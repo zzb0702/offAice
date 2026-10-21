@@ -60,8 +60,8 @@ export function versionText(provider?: ProviderInfo) {
 export function runnable(provider?: ProviderInfo) {
   if (!provider?.available || provider.stale) return false;
   // External programs may report an account or an explicitly identified subscription.
-  if (isAcpId(provider.id)) return provider.auth === 'account' || provider.auth === 'subscription';
-  return provider.id === 'claude' ? ['subscription','api'].includes(provider.auth) : provider.id === 'codex' ? provider.auth === 'subscription' : provider.id === 'dsh' ? provider.auth === 'account' : provider.auth === 'api';
+  if (isAcpId(provider.id)) return ['account','subscription','api'].includes(provider.auth);
+  return provider.id === 'claude' ? ['subscription','api'].includes(provider.auth) : provider.id === 'codex' ? provider.auth === 'subscription' : provider.id === 'dsh' ? ['account','api'].includes(provider.auth) : provider.auth === 'api';
 }
 
 const DEFAULT_TITLE = /^(Codex|Claude|DeepSeek Harness|DeepSeek · DSH|DeepSeek API|DeepSeek)\s*(对话|会话)$/;

@@ -12,6 +12,7 @@ export type CatalogId =
   | "cursor"
   | "kimi"
   | "opencode"
+  | "antigravity"
   | "zcode";
 export interface CatalogAuthentication {
   id: string;
@@ -43,9 +44,9 @@ export interface ExecutorCatalogEntry {
   limitations: string[];
   setupScript?: boolean;
   sources: string[];
-  distribution?: "zcode-official" | "qoder-official" | "cursor-official";
+  distribution?: "zcode-official" | "qoder-official" | "cursor-official" | "antigravity-official";
   downloadable?: false;
-  adapter?: "zcode";
+  adapter?: "zcode" | "antigravity";
   profileDirectories?: Record<string, string>;
   login?: {
     args: string[];
@@ -72,6 +73,16 @@ export interface ExecutorCatalogEntry {
 export const CATALOG_REVISION = "2026-10-09";
 /** Reviewed official distributions only. The renderer cannot supply an installation URL or package. */
 export const ALL_EXECUTOR_CATALOG: readonly ExecutorCatalogEntry[] = [
+  {
+    id:'antigravity',adapter:'antigravity',distribution:'antigravity-official',
+    name:'Antigravity CLI',vendor:'Google',homepage:'https://antigravity.google/product/antigravity-cli/',
+    license:'Google 专有许可',licenseUrl:'https://antigravity.google/terms',termsUrl:'https://antigravity.google/terms',
+    packageName:'antigravity-cli',bin:'agy',recommendedVersion:'1.4.3',verifiedVersions:['1.4.3'],minimumNode:'原生程序，无需 Node.js',args:[],
+    authentication:[{id:'google',label:'Antigravity 原生 Google 账号登录',kind:'browser',billing:'subscription',description:'在原生登录终端完成授权，实际可用模型及额度由官方账号决定。'}],
+    capabilities:['原生 CLI','流式文字回复','模型选择','会话恢复','任务中止'],
+    limitations:['下载官方 Windows x64 原生程序并核对 SHA-512，不修改系统 PATH。','需要人工批准的工具在无交互模式下会被拒绝；当前不支持图片输入。','授权由原生程序管理，使用前请核对实际登录的账号。'],
+    sources:['https://antigravity.google/docs/getting-started/','https://antigravity.google/cli/install.ps1','https://antigravity.google/docs/cli/headless/'],
+  },
   {
     id: "cursor",
     name: "Cursor CLI",
@@ -121,10 +132,11 @@ export const ALL_EXECUTOR_CATALOG: readonly ExecutorCatalogEntry[] = [
     minimumNode: "24.14.0",
     args: [],
     distribution: "zcode-official",
-    modelConfiguration: { resetOnAuthenticationChange: true },
+    modelConfiguration: { resetOnAuthenticationChange: true, environment:'AIROOM_ZCODE_MODEL',baseUrlEnvironment:'AIROOM_ZCODE_BASE_URL',baseUrlRequired:true,persistSelection:true },
     authentication: [
       { id: "bigmodel", label: "BigModel 中国区官方账号登录", kind: "browser", billing: "subscription", description: "中国区智谱账号请选择此项，通过 BigModel 官方授权使用对应编程套餐。" },
       { id: "zai", label: "Z.ai 海外官方账号登录", kind: "browser", billing: "subscription", description: "海外 Z.ai 账号使用此项；中国区 BigModel 账号请选择国内登录。" },
+      { id:'custom-api',label:'自定义中转/API',kind:'api',billing:'metered',secretKeys:['AIROOM_ZCODE_API_KEY'],modelRequired:true,environment:{AIROOM_ZCODE_API_PROTOCOL:'openai-completions'},description:'使用你填写的服务地址、模型和 API Key；默认 OpenAI Chat Completions，不需要 BigModel 或 Z.ai 官方账号登录。' },
     ],
     capabilities: [
       "官方原生 CLI",
@@ -226,9 +238,10 @@ export const ALL_EXECUTOR_CATALOG: readonly ExecutorCatalogEntry[] = [
     authentication: [
       { id: "account", label: "DeepSeek 官方账号登录", kind: "browser" },
     ],
-    capabilities: ["ACP", "原生工具", "独立账号目录"],
+    capabilities: ["ACP", "原生工具", "独立账号目录", "自定义中转/API"],
     limitations: [
       "需要标准 Node.js ≥ 26.4.0；内置环境不兼容时使用经校验的官方便携备用环境。",
+      "自定义中转/API 在连接设置中配置，默认使用 OpenAI Chat Completions 格式。",
     ],
     sources: [
       "https://registry.npmjs.org/@deepseek-ai/dsh",
@@ -595,7 +608,7 @@ export const EXECUTOR_CATALOG = ALL_EXECUTOR_CATALOG.filter(
 );
 export function catalogEntry(id: unknown): ExecutorCatalogEntry {
   const entry = ALL_EXECUTOR_CATALOG.find((item) => item.id === id);
-  if (!entry) throw new Error("执行端不在内置清单中，请使用手动添加。");
+  if (!entry) throw new Error("执行端不在内置清单中，请选择清单内的执行端。");
   return entry;
 }
 export const catalogProvider = (id: CatalogId): ProviderId =>

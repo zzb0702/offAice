@@ -122,6 +122,7 @@ export const RENDERER_METHODS: readonly string[] = [
   'catalog.credentials',
   'catalog.openLink',
   'claudeApiKey.set',
+  'dshApiKey.set',
   'desk.open',
   'desk.folder',
   'desk.topic',

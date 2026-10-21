@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import path from 'node:path';
+import {mkdir,writeFile} from 'node:fs/promises';
+import {AcpAdapter} from '../src/backend/adapters/acp.ts';
+import {buildEnvironment} from '../src/backend/security.ts';
+import {quotaReport} from '../src/shared/quota.ts';
+if(process.env.AIROOM_VERIFY_NATIVE_QUOTA!=='1')throw Error('Native account verification requires explicit opt-in.');
+const db=new DatabaseSync(path.resolve('.airoom/airoom.sqlite'),{readOnly:true});
+const executor=db.prepare("SELECT value FROM entities WHERE entity='executors'").all().map(x=>JSON.parse(x.value)).find(x=>x.catalogId==='qodercn');
+const settings=JSON.parse(db.prepare("SELECT value FROM entities WHERE entity='settings' AND id='main'").get().value);db.close();assert.ok(executor);
+const result=await new AcpAdapter(executor).accountQuota(settings,{...buildEnvironment(settings),AIROOM_ACP_HOME:path.resolve('.airoom/native/acp')});
+const quota=quotaReport(executor.id,result.payload,result.checkedAt,'probe');
+const report={passed:quota?.queryStatus==='ready',edition:executor.catalogId,reason:result.reason,queryStatus:quota?.queryStatus,buckets:quota?.credits?.buckets.map(x=>({id:x.id,hasTotal:x.total!==undefined,hasUsed:x.used!==undefined,hasRemaining:x.remaining!==undefined})),hasAggregate:quota?.credits?.usedPercent!==undefined,inferenceMessages:0,controls:['initialize','get_usage_info'],checks:['actual currently selected native Qoder CN account and private profile','no model message or turn sent','only whitelist quota metadata retained; no IDs, account amounts, native URLs or credentials in report']};
+await mkdir('tests/results',{recursive:true});await writeFile('tests/results/qoder-quota-native.json',JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));assert.equal(report.passed,true);

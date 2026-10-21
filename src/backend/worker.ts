@@ -5,6 +5,7 @@ import { Engine } from './engine';
 import { setOwnershipListener } from './process-supervisor';
 import { redact, registerSecret } from './security';
 import { setClaudeOAuthToken, setClaudeApiKey } from './adapters/claude';
+import { setDshApiKey } from './adapters/dsh';
 /** The saved Claude token goes to the Claude adapter only (never process.env), redacted from every log. */
 const claudeToken = (value?: string) => { if (value) registerSecret(value); setClaudeOAuthToken(value); };
 let engine: Engine | undefined;
@@ -21,6 +22,7 @@ setOwnershipListener(info => send({ type: 'ownership', info }));
   engine = new Engine(event.data.dataDirectory, publish, () => {});
   engine.setKey(event.data.key || undefined);
   engine.setAcpSecrets(event.data.acpSecrets || {});
+  setDshApiKey(event.data.dshApiKey || undefined);
   claudeToken(event.data.claudeToken || undefined);
   if(event.data.claudeApiKey)registerSecret(event.data.claudeApiKey);setClaudeApiKey(event.data.claudeApiKey||undefined);
   port.on('message', async (message: any) => {
@@ -28,6 +30,7 @@ setOwnershipListener(info => send({ type: 'ownership', info }));
     if (!packet?.id || typeof packet.method !== 'string') return;
     try {
       if (closing) throw new Error('执行服务正在关闭，不再接收新操作');
+      if(packet.method==='internal.dshApiKey'){setDshApiKey(packet.params?.value||undefined);engine!.broadcast();send({id:packet.id,result:true});return;}
       if(packet.method==='internal.claudeApiKey'){if(packet.params?.value)registerSecret(packet.params.value);setClaudeApiKey(packet.params?.value||undefined);engine!.broadcast();send({id:packet.id,result:true});return;}
       if (packet.method === 'internal.claudeToken') { claudeToken(packet.params?.value || undefined); engine!.broadcast(); send({ id: packet.id, result: true }); return; }
       if (packet.method === 'internal.key') { engine!.setKey(packet.params?.value || undefined); send({ id: packet.id, result: true }); return; }

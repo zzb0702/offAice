@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { AlertCircle, CheckCircle2, CircleDashed, FolderPlus, KeyRound, LoaderCircle, RefreshCw, Settings2, UserRound, X } from 'lucide-react';
 import type { ProviderId, ProviderInfo, Snapshot } from '../shared/types';
 import { quotaFresh } from '../shared/quota';
+import {creditsExhausted} from '../shared/qoder-quota';
 import { Avatar, type Team, type TeamMember } from './members';
 import type { SettingsTab } from './settings';
 import { providerSummary, runnable, versionText, type Invoke } from './ui';
@@ -21,7 +22,9 @@ export function memberCheck(info: ProviderInfo | undefined, snapshot: Snapshot):
     return { tone: 'warn', text: `没有连上：${info.detail.split('\n')[0].slice(0, 80) || '原因未知'}`, action: 'settings' };
   }
   if (!runnable(info)) return { tone: 'warn', text: info.auth === 'api' ? '正在用 API 计费，需要改成订阅登录' : providerSummary(info), action: 'settings' };
-  const windows = snapshot.quotas?.[info.id]?.windows.filter(window => quotaFresh(window)) ?? [];
+  const quota=snapshot.quotas?.[info.id];
+  if(quota?.kind==='credits'&&creditsExhausted(quota.credits))return {tone:'warn',text:'账号 Credits 已用完，请刷新额度或检查官方套餐'};
+  const windows = quota?.kind==='model-groups'?[]:quota?.windows.filter(window => window.scope!=='tools'&&quotaFresh(window)) ?? [];
   const spent = windows.find(window => window.exhausted || (window.usedPercent ?? 0) >= 100);
   if (spent) return { tone: 'warn', text: `${spent.label}额度已用完${spent.resetsAt ? `，${new Date(spent.resetsAt * 1000).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 恢复` : ''}` };
   return { tone: 'ok', text: `已就绪 · ${providerSummary(info)}${info.version ? ` · ${versionText(info)}` : ''}` };

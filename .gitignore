@@ -15,3 +15,7 @@ release/
 *.log
 tests/results/
 tests/ui/results/
+memory/.index.sqlite
+memory/.index.sqlite-*
+memory/.write.lock
+scripts/.mem_api_key

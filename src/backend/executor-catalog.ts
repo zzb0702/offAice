@@ -17,6 +17,7 @@ import {
 import { installedVersions } from "./member-versions";
 import type { Store } from "./store";
 import { zcodeRepairVersion } from "./zcode-install";
+import { ZCODE_API_PROTOCOLS, zcodeApiConnection } from '../shared/zcode-api';
 import {cursorNodeEnvironment} from "./cursor-install";
 
 export function catalogStatuses(
@@ -75,6 +76,7 @@ export function catalogCandidate(
     permissions: existing?.permissions ?? ACP_DEFAULT_PERMISSIONS,
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     catalogId: id,
+    ...(entry.adapter==='antigravity'?{adapter:'antigravity' as const}:{}),
     authentication: existing?.authentication ?? (existing && id === 'zcode' ? 'zai' : entry.authentication[0].id),
   };
 }
@@ -175,7 +177,7 @@ export function catalogAuthentication(executor: AcpExecutor, params: any) {
     !model
   )
     throw new Error("请填写这个 API 账号可用的模型。");
-  const config = entry.modelConfiguration;
+  const config = entry.id==='zcode'&&auth.id!=='custom-api'?undefined:entry.modelConfiguration;
   if (
     config?.baseUrlRequired &&
     Object.keys(secrets).length &&
@@ -194,6 +196,12 @@ export function catalogAuthentication(executor: AcpExecutor, params: any) {
     )
       throw new Error("API 服务地址无效。");
     env[config.baseUrlEnvironment] = url.toString().replace(/\/$/, "");
+  }
+  if(entry.id==='zcode'&&auth.id==='custom-api'){
+    const protocol=params.apiProtocol??'openai-completions';
+    if(!ZCODE_API_PROTOCOLS.includes(protocol))throw new Error('ZCode API 接口格式无效。');
+    env.AIROOM_ZCODE_API_PROTOCOL=protocol;
+    if(Object.keys(secrets).length)zcodeApiConnection({env,model});
   }
   return {
     executor: {

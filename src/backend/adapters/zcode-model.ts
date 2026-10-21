@@ -5,6 +5,7 @@ import type {ChildProcess} from 'node:child_process';
 import type {ModelOption} from '../../shared/types';
 import {JsonLineRpc,spawnCli,type CliCommand} from './common';
 import {stopOwned} from '../process-supervisor';
+import {zcodeProviderConfig} from '../zcode-provider-config';
 
 type Selection={providerId:string;modelId:string;options?:{reasoningLevel?:string}};
 type NativeOption={ref:Selection;label?:string;description?:string;disabledReason?:string;reasoning?:{levels?:{value:string}[];defaultLevel?:string}};
@@ -26,14 +27,14 @@ export class ZcodeModelSession {
     };
     onProcess?.(this.child);
   }
-  static async open(command:CliCommand,env:NodeJS.ProcessEnv,cwd:string,provider:string,onProcess?:(child:ChildProcess)=>void){
+  static async open(command:CliCommand,env:NodeJS.ProcessEnv,cwd:string,provider:string,onProcess?:(child:ChildProcess)=>void,accountOverlay=true){
     const file=env.ZCODE_BUILTIN_PROVIDER_CONFIG_FILE!;
     const builtin=JSON.parse(await readFile(file,'utf8'));
     if(!Number.isSafeInteger(builtin.revision))throw new Error('ZCode 官方模型清单缺少版本信息，请检查执行端更新。');
     const session=new ZcodeModelSession(command,env,cwd,provider,onProcess);
     try{
       // The desktop protocol needs an entitlement overlay; no token, API key or model request crosses this bridge.
-      await session.rpc.request('provider/updateAccountConfig',{
+      if(accountOverlay)await session.rpc.request('provider/updateAccountConfig',{
         revision:`airoom-models:${provider}:${builtin.revision}`,
         basedOnZCodeBuiltinRevision:`zcode-builtin:${builtin.revision}:${createHash('sha256').update(path.resolve(file)).digest('hex')}`,
         providers:{[provider]:{access:{type:'zhipu-account',entitled:true}}},
@@ -58,7 +59,7 @@ export class ZcodeModelSession {
   }
   async select(state:ZcodeModelState,model:string,effort?:string,verifyPersistence=true):Promise<Selection>{
     const option=state.options.find(item=>item.ref.modelId===model||`${item.ref.providerId}/${item.ref.modelId}`===model);
-    if(!option)throw new Error('ZCode 所选模型不在当前账号套餐的原生清单中，请刷新模型选项。');
+    if(!option)throw new Error('ZCode 所选模型不在当前连接的原生清单中，请刷新模型选项。');
     const levels=option.reasoning?.levels?.map(item=>item.value).filter(value=>typeof value==='string'&&value)??[];
     if(effort&&!levels.includes(effort))throw new Error('ZCode 所选思考程度不受当前模型支持，请刷新选项。');
     const level=effort??option.reasoning?.defaultLevel;
@@ -93,14 +94,14 @@ export class ZcodeModelSession {
   }
 }
 
-/** New native sessions persist at their first prompt. Give that prompt a private native default, never a shared edit. */
+/** New sessions need a valid private default; resumed sessions retain their verified saved selection. */
 export async function zcodeRunModelEnvironment(env:NodeJS.ProcessEnv,selection:Selection){
   const original=env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE!;
-  const content=JSON.parse(await readFile(original,'utf8'));
+  const content=zcodeProviderConfig(JSON.parse(await readFile(original,'utf8')),selection);
   const directory=await mkdtemp(path.join(path.dirname(original),'.airoom-model-')),file=path.join(directory,'provider_config.json');
   const cleanup=async()=>{await rm(file,{force:true});await rmdir(directory);};
   try{
-    await writeFile(file,JSON.stringify({...content,config:{...content.config,defaultModelSelection:selection}}),{mode:0o600,flag:'wx'});
+    await writeFile(file,JSON.stringify(content),{mode:0o600,flag:'wx'});
     return {env:{...env,ZCODE_PERSONAL_PROVIDER_CONFIG_FILE:file},cleanup};
   }catch(error){await cleanup().catch(()=>{});throw error;}
 }

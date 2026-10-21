@@ -41,6 +41,7 @@ export function compatibilitySync<T>(stage:string,action:()=>T):T{
   try{return action();}catch(cause){error=cause;throw cause;}finally{if(scope){scope.report.stages.push({stage,startedAt:new Date(start).toISOString(),durationMs:Date.now()-start,outcome:error?'failed':'passed',...(error?{error:String(redact((error as Error).message)).slice(0,2500)}:{})});if(scope.report.stages.length>100)scope.report.stages.shift();}}
 }
 export function observeProtocol(version: string){const scope=context.getStore();if(!scope)return;scope.report.identity.protocolVersion=version;if(scope.expected?.protocolVersion&&scope.expected.protocolVersion!==version)throw new Error('原会话协议版本不匹配，未新建上下文继续执行。');}
+export function observeAdapterProtocol(protocol:string){const scope=context.getStore();if(!scope)return;if(scope.expected?.protocol&&scope.expected.protocol!==protocol)throw new Error('原会话的执行协议已改变，恢复已停止。');scope.report.identity.protocol=protocol;}
 type ProgramIdentity=Pick<ExecutorIdentity,'path'|'digest'|'version'|'versionSource'>;
 /** A digest is reused only while the file keeps its size, timestamps, file id and manifest. */
 export type ProgramFingerprint={size:string;mtimeNs:string;ctimeNs:string;ino:string;manifest:string;digest:string};

@@ -29,6 +29,8 @@ export interface AcpExecutor {
   /** Set by the reviewed catalog installer; manual edits detach managed version tracking. */
   catalogId?: import('./executor-catalog').CatalogId;
   authentication?: string;
+  /** Proprietary CLI connection; missing means the existing ACP protocol. */
+  adapter?: 'antigravity';
 }
 export interface Settings {
   networkMode: 'tun' | 'proxy'; proxyUrl: string;
@@ -41,6 +43,12 @@ export interface Settings {
   efforts: Partial<Record<ProviderId, string>>;
   deepseekEnabled: boolean; deepseekBaseUrl: string;
   dshProfile: string; maxParallel: number;
+  dshAuthMode?: 'account' | 'api';
+  dshApiBaseUrl?: string;
+  dshApiProtocol?: import('./dsh-connection').DshApiProtocol;
+  /** Remember each connection mode's model when switching in settings. */
+  dshAccountModel?: string; dshApiModel?: string; dshAccountEffort?: string; dshApiEffort?: string;
+  dshApiThinkingFormat?: import('./dsh-connection').DshApiThinkingFormat;
   stopTimeoutMs: number; defaultWriteMode: boolean;
   /** Background speech is independently opt-in; explicit user conversations keep their own budgets. */
   automationPolicies?: import('./automation').AutomaticPolicies;
@@ -82,6 +90,8 @@ export interface ProviderInfo {
 }
 /** Account windows reported by a member's own program; absent numbers mean unknown. */
 export interface QuotaWindow {
+  /** A tool-call quota does not limit ordinary model turns. */
+  scope?: 'tools';
   id: string; label: string; usedPercent?: number; resetsAt?: number;
   exhausted?: boolean; warning?: boolean; checkedAt: string;
 }
@@ -92,14 +102,25 @@ export interface AccountBalance {
   /** Native account service confirmed the login is gone; network failures leave this unset. */
   signedOut?: boolean;
 }
+export interface CreditsBucket {
+  id:'plan'|'addon'|'organization'; label:string;
+  total?:number; used?:number; remaining?:number; usedPercent?:number; unit?:string; available?:boolean;
+}
+export interface AccountCredits {
+  status:'ready'|'unavailable'; buckets:CreditsBucket[]; checkedAt:string;
+  plan?:string; expiresAt?:number; usedPercent?:number; exhausted?:boolean;
+}
 export interface MemberQuota {
   provider: ProviderId; windows: QuotaWindow[]; checkedAt: string;
   source: 'probe' | 'event';
   /** Account/config file metadata only; no credentials. */
   accountStamp?: string;
   balance?: AccountBalance;
+  credits?: AccountCredits;
   /** Result of an explicit read-only subscription query; unavailable is distinct from an expired sample. */
   queryStatus?: 'ready' | 'unavailable';
+  /** Native layout; model-group quotas lack a verified model-ID mapping and remain display only. */
+  kind?: 'model-groups' | 'coding-plan' | 'credits';
 }
 export type RoomId = 'global' | `project:${string}` | `desk:${string}` | `report:${string}:${string}` | `roundtable:${string}`;
 export interface Project { id: string; name: string; directory: string; createdAt: string; collaborationPaused: boolean; /** Private conversations use hidden execution directories. */ kind?: 'lounge' | 'desk' | 'roundtable'; roomId?: RoomId }
@@ -188,6 +209,7 @@ export interface RoomLink { projectId: string; sessionId: string; runId?: string
   /** The user's decision in the room: accepted, or sent back with comments. */
   verdict?: 'accepted' | 'returned'; verdictAt?: string }
 export interface RoomMessage { id: string; author: string; authorName?: string; threadId?: string; text: string; at: string; runId?: string;
+  tokenUsage?: import('./token-usage').TokenUsage;
   /** An immutable version of the saved project facts, displayed without a model call. */
   memberReport?: import('./project-workbench').MemberReport;
   /** Previous saved facts folded into one report card; original messages remain in storage. */
@@ -242,6 +264,7 @@ export interface RoomState { active: boolean; mode: 'chat' | 'meeting' | 'discus
   /** The member condensing a topic right now. */
   compressing?: string }
 export interface Session {
+  tokenUsageCheckpoint?: import('./token-usage').TokenUsageCheckpoint;
   executorIdentity?: import('./compatibility').ExecutorIdentity;
   id: string; projectId: string; provider: ProviderId; title: string; nativeId?: string; nativeHome?: 'shared' | 'airoom';
   roomId?: RoomId; roomThreadId?: string;
@@ -277,6 +300,7 @@ export interface Session {
 }
 export interface Run {
   compatibilityReportId?: string;
+  tokenUsage?: import('./token-usage').TokenUsage;
   executorIdentity?: import('./compatibility').ExecutorIdentity;
   requestedConfig?: import('./executor-config').RequestedRunConfig;
   effectiveConfig?: import('./executor-config').EffectiveRunConfig;
@@ -339,6 +363,7 @@ export interface Snapshot {
   /** A long-lived Claude subscription token is saved (the value never leaves the desktop and Claude processes). */
   claudeTokenConfigured?: boolean;
   claudeApiKeyConfigured?: boolean;
+  dshApiKeyConfigured?: boolean;
   members: MemberProfile[];
   /** Display identities for retained history; these are not selectable active members. */
   removedMembers?: MemberIdentity[];
@@ -364,6 +389,7 @@ export interface AiroomBridge {
   pathForFile?(file: File): string;
 }
 export interface AdapterContext {
+  recordTokenUsage?(usage: import('./token-usage').TokenUsage, nativeId?: string): void;
   recordConfig?(config: Omit<import('./executor-config').EffectiveRunConfig, 'at'>): void;
   run: Run; session: Session; settings: Settings; cwd: string; env: NodeJS.ProcessEnv;
   /** Positively identified chat surfaces. Flow tasks keep their complete task briefing. */

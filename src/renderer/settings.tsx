@@ -1,5 +1,7 @@
 import { connectionLabel } from '../shared/executor-connection';
 import {ProviderLogin} from './provider-login';
+import { DshConnection } from './dsh-connection';
+import { dshApiMode } from '../shared/dsh-connection';
 import { ModelPicker } from './model-picker';
 export { ModelPicker } from './model-picker';
 import { PermissionSettings } from './permission-settings';
@@ -147,11 +149,11 @@ export function SettingsModal({ snapshot, invoke, onClose, notify, installs, onI
                 {provider!=='deepseek'&&<button className="button small quiet danger" aria-label={`${PROVIDER_NAMES[provider]} 删除连接`} disabled={Boolean(checking)||!snapshot.backendReady||team.members.some(member=>member.executor===provider)} title={team.members.some(member=>member.executor===provider)?'先让使用它的人物改用其他执行端，或删除对应人物卡':undefined} onClick={()=>void removeProvider(provider)}><Trash2 size={12}/>删除连接</button>}
               </div>
               <p className="provider-detail">{connectionLabel(provider)}</p><p className="provider-detail">{info?.detail ?? '尚未检查本机可用性与认证方式。'}</p>
-              {(provider==='codex'||provider==='dsh'||provider==='claude'&&settings.claudeAuthMode!=='api')&&<ProviderLogin provider={provider} available={snapshot.backendReady} invoke={invoke} notify={notify} beforeLogin={saveConfiguration}/>}
+              {(provider==='codex'||provider==='dsh'&&!dshApiMode(settings)||provider==='claude'&&settings.claudeAuthMode!=='api')&&<ProviderLogin provider={provider} available={snapshot.backendReady} invoke={invoke} notify={notify} beforeLogin={saveConfiguration}/>}
               <CompatibilityDetails provider={provider} info={info} available={snapshot.backendReady} load={provider=>invoke('provider.compatibility',{provider})}/>
               {loginMessages[provider] && <pre className="login-message">{loginMessages[provider]}</pre>}
               {provider !== 'deepseek' && <label className="field compact">执行文件路径 <span className="optional">留空自动查找</span><input value={settings.paths[provider] ?? ''} onChange={event => setSettings(previous => ({ ...previous, paths: { ...previous.paths, [provider]: event.target.value } }))} placeholder={info?.path ?? (provider === 'claude' ? '独立安装的 Claude Code CLI 路径' : '使用本机默认路径')} spellCheck={false} /></label>}
-              <ModelPicker provider={provider} info={info} settings={settings} setSettings={setSettings} invoke={invoke} />
+              {!(provider==='dsh'&&dshApiMode(settings))&&<ModelPicker provider={provider} info={info} settings={settings} setSettings={setSettings} invoke={invoke} />}
               {provider !== 'deepseek' && <VersionPanel provider={provider} info={info} available={snapshot.backendReady} invoke={invoke} installing={installs[provider]} onInstall={version => onInstall(provider, version)} onSelectedPath={path => setSettings(previous => ({ ...previous, paths: { ...previous.paths, [provider]: path ?? undefined } }))} />}
               {provider==='claude'&&<>
                 <label className="field compact">Claude 登录方式<select aria-label="Claude 登录方式" value={settings.claudeAuthMode??'subscription'} onChange={event=>setSettings(previous=>({...previous,claudeAuthMode:event.target.value as 'subscription'|'api'}))}><option value="subscription">订阅登录（官方 Claude Code）</option><option value="api">API Key</option></select></label>
@@ -165,13 +167,13 @@ export function SettingsModal({ snapshot, invoke, onClose, notify, installs, onI
                   {snapshot.claudeTokenConfigured && <button type="button" className="button small quiet danger" disabled={savingToken || !snapshot.backendReady} onClick={() => { if (window.confirm('清除 Claude 长期令牌？之后需要重新登录 Claude。')) void saveClaudeToken(''); }}>清除令牌</button>}</div></div>}
               {provider === 'claude' && settings.claudeAuthMode!=='api' && <div className="login-code"><label className="field compact">粘贴官方授权码<input type="password" autoComplete="off" aria-label="Claude 官方授权码" value={claudeLoginCode} onChange={event => setClaudeLoginCode(event.target.value)} placeholder="仅在官方网页显示授权码时填写" spellCheck={false} /></label><button className="button small secondary" disabled={!claudeLoginCode.trim() || sendingLoginCode || !snapshot.backendReady} onClick={() => void sendClaudeLoginCode()}>提交授权码</button><p className="provider-detail">先点击登录。如果网页给出授权码，在这里粘贴；提交后立即清空，不写入对话和日志。</p></div>}
               {provider === 'dsh' && <label className="field compact">DSH 独立后台配置<input value={settings.dshProfile} onChange={event => setSettings(previous => ({ ...previous, dshProfile: event.target.value }))} /></label>}
-              {provider === 'dsh' && <p className="provider-detail">使用独立 DSH 后台和独立账号登录，不需要桌面客户端运行，也不读取桌面登录凭据。点击登录后在官方浏览器页面授权一次。</p>}
-              <div className="provider-check-time">上次确认：{dateTime(info?.checkedAt)}{info?.stale ? ' · 等待重新检测' : ''}{info?.authDirectory && <span> · 账号目录：{info.authDirectory}</span>} · 额度：{provider==='claude'&&settings.claudeAuthMode==='api'?'API 按用量计费':info?.quota == null ? '未提供' : '已收到服务端信息'}</div>
-              {!(provider==='claude'&&settings.claudeAuthMode==='api')&&info?.quota != null && <details className="quota-details"><summary>查看服务端额度信息</summary><pre>{typeof info.quota === 'string' ? info.quota : JSON.stringify(info.quota, null, 2)}</pre></details>}
+              {provider === 'dsh' && <DshConnection settings={settings} setSettings={setSettings} snapshot={snapshot} invoke={invoke} notify={notify} beforeSave={saveConfiguration}/>}
+              <div className="provider-check-time">上次确认：{dateTime(info?.checkedAt)}{info?.stale ? ' · 等待重新检测' : ''}{info?.authDirectory && <span> · 账号目录：{info.authDirectory}</span>} · 额度：{provider==='claude'&&settings.claudeAuthMode==='api'||provider==='dsh'&&dshApiMode(settings)?'API 按用量计费':info?.quota == null ? '未提供' : '已收到服务端信息'}</div>
+              {!(provider==='claude'&&settings.claudeAuthMode==='api'||provider==='dsh'&&dshApiMode(settings))&&info?.quota != null && <details className="quota-details"><summary>查看服务端额度信息</summary><pre>{typeof info.quota === 'string' ? info.quota : JSON.stringify(info.quota, null, 2)}</pre></details>}
             </section>;
           })}
           {(snapshot.executors ?? []).length > 0 && <><div className="settings-section-heading"><h3>外接的 AI 程序</h3></div>
-            <p className="settings-description">清单执行端自动使用对应适配；手动连接使用 ACP。登录、模型和权限按执行端实际能力提供。</p></>}
+            <p className="settings-description">清单执行端自动使用对应适配。登录、模型和权限按执行端实际能力提供。</p></>}
           {(snapshot.executors ?? []).map(executor => <div key={executor.id} data-provider={executor.id}><AcpConnection executor={executor} info={snapshot.providers.find(item => item.id === executor.id)} snapshot={snapshot} invoke={invoke} notify={notify} settings={settings} setSettings={setSettings} /></div>)}
         </>}
         {tab === 'profile' && <ProfileSettings snapshot={snapshot} invoke={invoke} />}

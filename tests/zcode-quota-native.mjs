@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {mkdir,writeFile} from 'node:fs/promises';
+import path from 'node:path';
+import {ZcodeAdapter} from '../src/backend/adapters/zcode.ts';
+import {quotaReport} from '../src/shared/quota.ts';
+import {buildEnvironment} from '../src/backend/security.ts';
+if(process.env.AIROOM_VERIFY_NATIVE_QUOTA!=='1')throw Error('Native account verification requires explicit opt-in.');
+const db=new DatabaseSync(path.resolve('.airoom/airoom.sqlite'),{readOnly:true});
+const executors=db.prepare("SELECT value FROM entities WHERE entity='executors'").all().map(x=>JSON.parse(x.value));
+const settings=JSON.parse(db.prepare("SELECT value FROM entities WHERE entity='settings' AND id='main'").get().value);db.close();
+const executor=executors.find(x=>x.catalogId==='zcode');assert.ok(executor);assert.notEqual(executor.authentication,'custom-api');
+const result=await new ZcodeAdapter(executor).accountQuota(settings,{...buildEnvironment(settings),AIROOM_ACP_HOME:path.resolve('.airoom/native/acp')});
+const quota=quotaReport(executor.id,result.payload,result.checkedAt,'probe');
+const report={passed:quota?.queryStatus==='ready',queryStatus:quota?.queryStatus,reason:result.reason,account:executor.authentication,windows:quota?.windows.map(x=>({label:x.label,hasPercent:x.usedPercent!==undefined,hasReset:x.resetsAt!==undefined,scope:x.scope??'model'})),inferenceMessages:0,checks:['current AIROOM-selected official account only','read-only official quota request','no credential changes, account identifiers, keys or actual quota percentages retained']};
+await mkdir('tests/results',{recursive:true});await writeFile('tests/results/zcode-quota-native.json',JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));assert.equal(report.passed,true);

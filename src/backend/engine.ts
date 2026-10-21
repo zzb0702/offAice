@@ -108,6 +108,8 @@ import {
 } from "../shared/defaults";
 import { AcpAdapter } from "./adapters/acp";
 import { ZcodeAdapter } from "./adapters/zcode";
+import { AntigravityAdapter } from "./adapters/antigravity";
+import { openAntigravityLogin } from "./antigravity-login";
 import type { CatalogLoginState } from "../shared/executor-catalog";
 import { Store } from "./store";
 import { RoomDiscussionController } from "./room-discussion";
@@ -140,7 +142,13 @@ import { checkNetwork } from "./network";
 import { disposeOwned, stopOwned } from "./process-supervisor";
 import { CodexAdapter } from "./adapters/codex";
 import { ClaudeAdapter, invalidateClaudeChecks } from "./adapters/claude";
-import { DshAdapter, resolveDshEntry } from "./adapters/dsh";
+import { DshAdapter, resolveDshEntry, dshApiKeyConfigured, dshApiKeyRevision } from "./adapters/dsh";
+import { dshApiConnection, dshApiMode, dshConnectionIdentity, dshApiReasoning } from '../shared/dsh-connection';
+import {zcodeApiMode} from '../shared/zcode-api';
+import {zcodeQuotaStamp} from './zcode-quota';
+import {zcodeAccount} from './adapters/zcode-account';
+import {qoderQuotaSupported,qoderQuotaStamp} from './qoder-quota';
+import {TokenUsageTracker} from '../shared/token-usage';
 import { DeepseekAdapter } from "./adapters/deepseek";
 import {
   fileStamp,
@@ -352,7 +360,7 @@ export class Engine {
   private memberInstallations = new Map<string, MemberInstallation>();
   private acpLogins = new Set<string>();
   private executorLoginStates = new Map<string, CatalogLoginState>();
-  private executorLoginAdapters = new Map<string, AcpAdapter | ZcodeAdapter>();
+  private executorLoginAdapters = new Map<string, AcpAdapter | ZcodeAdapter | AntigravityAdapter>();
   /** Connected programs' secret variables: decrypted by the main process and held only in memory here. */
   private acpSecrets = new Map<string, Record<string, string>>();
   private roomContextInputs = new Map<
@@ -904,6 +912,7 @@ export class Engine {
       : executor;
   }
   private quotaAccountStamp(provider: ProviderId) {
+    const external = isAcpId(provider) ? this.store.get<AcpExecutor>('executors',provider) : undefined;
     const home =
       provider === "claude"
         ? process.env.AIROOM_CLAUDE_HOME
@@ -912,7 +921,7 @@ export class Engine {
           : undefined;
     const account =
       provider === "dsh"
-        ? [process.env.AIROOM_DSH_HOME ?? "", this.settings.dshProfile]
+        ? [process.env.AIROOM_DSH_HOME ?? "", ...dshConnectionIdentity(this.settings), dshApiKeyRevision()]
         : home
           ? fileStamp(
               path.join(
@@ -927,6 +936,10 @@ export class Engine {
           provider,
           this.settings.paths[provider] ?? "",
           account,
+          ...(external ? [process.env.AIROOM_ACP_HOME ?? '',external.command,external.args,external.env,external.authentication,
+            external.catalogId==='zcode'&&!zcodeApiMode(external)&&process.env.AIROOM_ACP_HOME
+              ?zcodeQuotaStamp(path.join(process.env.AIROOM_ACP_HOME,external.id),external.command,zcodeAccount(external.authentication)):null,
+            qoderQuotaSupported(external)&&process.env.AIROOM_ACP_HOME?qoderQuotaStamp(this.withSecrets(external),path.join(process.env.AIROOM_ACP_HOME,external.id)):null] : []),
         ]),
       )
       .digest("hex");
@@ -968,6 +981,7 @@ export class Engine {
   }
   private async refreshBalance() {
     if (!this.alive) return;
+    if (dshApiMode(this.settings)) return;
     if (this.memberOperations.has("dsh"))
       throw new Error("DeepSeek 程序正在更新，请稍后刷新余额。");
     const settings = this.settings,
@@ -1012,11 +1026,11 @@ export class Engine {
       if (this.balanceCheck?.task === task) this.balanceCheck = undefined;
     }
   }
-  private async refreshQuota(provider: "codex" | "claude") {
+  private async refreshQuota(provider: ProviderId) {
     if (!this.alive) return;
     if (this.memberOperations.has(provider))
       throw new Error(
-        `${PROVIDER_NAMES[provider]} 程序正在更新，请稍后刷新额度。`,
+        `成员程序正在更新，请稍后刷新额度。`,
       );
     const settings = this.settings,
       revision = this.probeRevisions.get(provider) ?? 0,
@@ -1041,8 +1055,7 @@ export class Engine {
       if (
         settings !== this.settings ||
         revision !== (this.probeRevisions.get(provider) ?? 0) ||
-        (provider === "codex" &&
-          accountStamp !== this.quotaAccountStamp(provider))
+        accountStamp !== this.quotaAccountStamp(provider)
       )
         return this.memberQuota(provider);
       this.rememberQuota(
@@ -1050,7 +1063,9 @@ export class Engine {
         result?.payload ??
           (provider === "codex"
             ? { accountRateLimits: undefined }
-            : { accountUsage: undefined }),
+            : provider === "claude" ? { accountUsage: undefined }
+              :isAcpId(provider)&&this.store.get<AcpExecutor>('executors',provider)?.catalogId==='zcode'?{zcodeUsage:[]}
+                :isAcpId(provider)&&qoderQuotaSupported(this.store.get<AcpExecutor>('executors',provider))?{qoderUsage:{}}:{ antigravityUsage: [] }),
         result?.checkedAt ?? now(),
         "probe",
       );
@@ -1108,6 +1123,7 @@ export class Engine {
         .map((r) => ({ projectId: r.projectId, roundId: r.roundId })),
       claudeTokenConfigured: claudeOAuthTokenConfigured(),
       claudeApiKeyConfigured: claudeApiKeyConfigured(),
+      dshApiKeyConfigured: dshApiKeyConfigured(),
       projectFlows: this.projectFlow?.overviews() ?? [],
       jointReviews: this.projectFlow?.joint.overviews() ?? [],
       roundtable: this.roundtables?.snapshot(),
@@ -1734,6 +1750,7 @@ export class Engine {
     throw new Error("成员无效");
   }
   private externalAdapter(executor: AcpExecutor) {
+    if(executor.adapter==='antigravity')return new AntigravityAdapter(this.withSecrets(executor));
     return executor.catalogId &&
       catalogEntry(executor.catalogId).adapter === "zcode"
       ? new ZcodeAdapter(this.withSecrets(executor))
@@ -2291,7 +2308,7 @@ export class Engine {
       settings.efforts[id],
       id !== "deepseek" ? this.permissionsFor(id, settings) : undefined,
       id === "dsh"
-        ? [settings.dshProfile, settings.deepseekBaseUrl]
+        ? [...dshConnectionIdentity(settings), dshApiKeyRevision()]
         : undefined,
       isAcpId(id) ? this.store.get("executors", id) : undefined,
     ]);
@@ -2566,7 +2583,9 @@ export class Engine {
             ? "subscription"
             : info.id === "dsh"
               ? "account"
-              : info.auth,
+              : this.store.get<AcpExecutor>('executors',info.id)?.adapter==='antigravity'
+                ? 'account'
+                : info.auth,
       checkedAt: now(),
       detail: "本轮已收到并核对成员回复，连接已确认。",
       connectionCheck: { source: "run", runId: run.id },
@@ -3039,7 +3058,8 @@ export class Engine {
             throw new Error("这个连接不是清单管理的执行端。");
           const { executor, secrets } = catalogAuthentication(previous, params);
           const authenticationChanged = (previous.authentication ?? (entry.id === 'zcode' ? 'zai' : undefined)) !== executor.authentication;
-          if (entry.id === 'zcode' && authenticationChanged) {
+          const zcodeConnectionChanged=entry.id==='zcode'&&(authenticationChanged||executor.authentication==='custom-api'&&JSON.stringify([previous.model,previous.env.AIROOM_ZCODE_BASE_URL,previous.env.AIROOM_ZCODE_API_PROTOCOL])!==JSON.stringify([executor.model,executor.env.AIROOM_ZCODE_BASE_URL,executor.env.AIROOM_ZCODE_API_PROTOCOL]));
+          if (zcodeConnectionChanged) {
             for (const session of this.store.list<Session>('sessions').filter(item => item.provider === provider)) {
               // Canonical AIROOM history remains; a new account must not resume a thread pinned to the old provider.
               this.store.put('sessions', session.id, { ...session, nativeId: undefined, nativeHome: undefined });
@@ -3048,7 +3068,7 @@ export class Engine {
           for (const value of Object.values(secrets)) registerSecret(value);
           if (
             entry.modelConfiguration?.resetOnAuthenticationChange &&
-            authenticationChanged
+            (authenticationChanged || zcodeConnectionChanged)
           ) {
             const models = { ...this.settings.models },
               efforts = { ...this.settings.efforts };
@@ -3108,7 +3128,9 @@ export class Engine {
         return this.refreshBalance();
       }
       case "provider.quota": {
-        if (params.provider !== "claude" && params.provider !== "codex")
+        const external=isAcpId(params.provider)?this.store.get<AcpExecutor>('executors',params.provider):undefined;
+        if (params.provider !== "claude" && params.provider !== "codex" &&
+          !(external&&(external.adapter==='antigravity'||external.catalogId==='zcode'&&!zcodeApiMode(external)||qoderQuotaSupported(external))))
           throw new Error("这位成员程序尚未提供独立的额度刷新接口。");
         return this.refreshQuota(params.provider);
       }
@@ -3408,6 +3430,16 @@ export class Engine {
           throw new Error("请先等待当前任务或下载完成，再登录执行端。");
         if (this.acpLogins.has(executor.id))
           throw new Error("登录正在进行，请在已打开的页面里完成");
+        if(executor.adapter==='antigravity'){
+          this.acpLogins.add(executor.id);
+          try{
+            await this.invalidateRuntimes(executor.id,true);
+            return await openAntigravityLogin(this.withSecrets(executor),buildEnvironment(this.settings),()=>{
+              this.acpLogins.delete(executor.id);
+              if(this.alive)void this.probe(executor.id).catch(()=>{}).finally(()=>{if(this.alive)void this.schedule();});
+            });
+          }catch(error){this.acpLogins.delete(executor.id);throw error;}
+        }
         const adapter = this.externalAdapter(executor);
         this.acpLogins.add(executor.id);
         this.executorLoginAdapters.set(executor.id, adapter);
@@ -4196,6 +4228,8 @@ export class Engine {
           throw new Error("下载源、运行环境或登录方式无效。");
         if (!["tun", "proxy"].includes(next.networkMode))
           throw new Error("网络模式无效，请在设置里重新选择网络连接方式。");
+        if (!['account','api'].includes(next.dshAuthMode ?? 'account')) throw new Error('DSH 连接方式无效。');
+        if (dshApiMode(next)) { dshApiConnection(next); dshApiReasoning(next); }
         if (
           !Number.isInteger(next.maxParallel) ||
           next.maxParallel < 1 ||
@@ -4236,8 +4270,7 @@ export class Engine {
               JSON.stringify(this.settings.permissions[id]) !==
                 JSON.stringify(next.permissions[id])) ||
             (id === "dsh" &&
-              (this.settings.dshProfile !== next.dshProfile ||
-                this.settings.deepseekBaseUrl !== next.deepseekBaseUrl)) ||
+              (JSON.stringify(dshConnectionIdentity(this.settings)) !== JSON.stringify(dshConnectionIdentity(next)))) ||
             (id === "deepseek" &&
               (this.settings.deepseekBaseUrl !== next.deepseekBaseUrl ||
                 this.settings.deepseekEnabled !== next.deepseekEnabled)),
@@ -6501,6 +6534,7 @@ export class Engine {
           fileScope: "workspace",
         },
       };
+    const tokenUsageTracker = new TokenUsageTracker(session.nativeId, session.tokenUsageCheckpoint);
     const ctx: AdapterContext = {
       run,
       session,
@@ -6523,6 +6557,21 @@ export class Engine {
       cwd: session.workspace || project.directory,
       env: buildEnvironment(this.settings),
       deepseekKey: this.key,
+      recordTokenUsage: (native, nativeId) => {
+        const active = this.active.get(run.id);
+        if (this.closed || active?.ctx !== ctx || active.replyExpired) return;
+        const result = tokenUsageTracker.record(native, nativeId);
+        if (result.checkpoint) {
+          const current = this.require<Session>('sessions', session.id);
+          if (current.nativeId === nativeId) this.store.put('sessions', session.id, { ...current, tokenUsageCheckpoint: result.checkpoint });
+        }
+        // Room history can outlive the bounded run snapshot. Keep the same small numeric receipt there.
+        this.store.put('runs', run.id, { ...this.require<Run>('runs', run.id), tokenUsage: result.usage, updatedAt: now() });
+        for (const message of this.store.list<RoomMessage>('room_messages')) {
+          if (message.runId === run.id && !message.discussionControl) this.store.put('room_messages', message.id, { ...message, tokenUsage: result.usage });
+        }
+        this.broadcast();
+      },
       emit: (kind, text, data, fidelity) => {
         const active = this.active.get(run.id);
         if (active?.ctx !== ctx || active.replyExpired) return;

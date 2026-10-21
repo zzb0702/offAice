@@ -156,6 +156,11 @@ function secretFile() { return path.join(dataDirectory, 'deepseek.secret'); }
 /** Claude's long-lived subscription token from `claude setup-token`, encrypted with the system's credential protection. */
 function claudeTokenFile() { return path.join(dataDirectory, 'claude-token.secret'); }
 const claudeApiFile=()=>path.join(dataDirectory,'secrets','claude-api.secret');
+const dshApiFile=()=>path.join(dataDirectory,'secrets','dsh-api.secret');
+function storedDshApiKey(){
+  if(!safeStorage.isEncryptionAvailable()||!existsSync(dshApiFile()))return;
+  try{const value=safeStorage.decryptString(readFileSync(dshApiFile()));registerSecret(value);return value;}catch{return;}
+}
 function storedClaudeApiKey(){
   if(!safeStorage.isEncryptionAvailable()||!existsSync(claudeApiFile()))return;
   try{const value=safeStorage.decryptString(readFileSync(claudeApiFile()));registerSecret(value);return value;}catch{return;}
@@ -226,7 +231,7 @@ function startBackend() {
   worker = utilityProcess.fork(path.join(dist, 'worker.mjs'), [], { cwd: root, env, serviceName: 'AIROOM 执行服务', stdio: 'pipe' });
   const ownWorker=worker,ownPort=port;let resyncPending=false;
   worker.stderr?.on('data', data => {if(worker!==ownWorker)return;const text = redact(String(data)); if (!/ExperimentalWarning|Use .--trace-warnings/.test(text)) push({ type: 'backend', ready, message: text.slice(-2000) }); });
-  worker.on('spawn', () => {if(worker===ownWorker)ownWorker.postMessage({ type: 'connect', dataDirectory, key: storedKey(), claudeToken: storedClaudeToken(), claudeApiKey: storedClaudeApiKey(), acpSecrets: allAcpSecrets() }, [channel.port2]);});
+  worker.on('spawn', () => {if(worker===ownWorker)ownWorker.postMessage({ type: 'connect', dataDirectory, key: storedKey(), claudeToken: storedClaudeToken(), claudeApiKey: storedClaudeApiKey(), dshApiKey: storedDshApiKey(), acpSecrets: allAcpSecrets() }, [channel.port2]);});
   port.on('message', event => {
     if(worker!==ownWorker||port!==ownPort||!backendReadiness.current(generation))return;
     const packet = event.data;
@@ -408,7 +413,20 @@ function registerIpc() {
       if(Object.keys(secrets).length&&!safeStorage.isEncryptionAvailable())throw new Error('系统凭据加密不可用，没有保存密钥。');
       for(const value of Object.values(secrets))registerSecret(value);
       writeAcpSecrets(id,secrets);
-      try{return await request('catalog.credentials',{id:entry.id,authentication:auth.id,model:params.model,baseUrl:params.baseUrl,clear:params.clear===true,secrets},60_000);}catch(error){writeAcpSecrets(id,stored);throw error;}
+      try{return await request('catalog.credentials',{id:entry.id,authentication:auth.id,model:params.model,baseUrl:params.baseUrl,apiProtocol:params.apiProtocol,clear:params.clear===true,secrets},60_000);}catch(error){writeAcpSecrets(id,stored);throw error;}
+    }
+    if(method==='dshApiKey.set'){
+      const value=String(params?.value??'').trim();
+      if(value.length>4096||value&&/[\r\n\0]/.test(value))throw new Error('API Key 格式无效。');
+      if(value&&!safeStorage.isEncryptionAvailable())throw new Error('系统凭据加密不可用，没有保存密钥。');
+      await request('internal.provider.loginBegin',{provider:'dsh'});
+      try{
+        if(value){registerSecret(value);writeEncryptedSecret(dshApiFile(),value);}else rmSync(dshApiFile(),{force:true});
+        await request('internal.dshApiKey',{value:value||undefined});
+        await request('internal.provider.invalidate',{provider:'dsh'});
+      }finally{await request('internal.provider.loginEnd',{provider:'dsh'});}
+      void request('provider.probe',{provider:'dsh'}).catch(()=>{});
+      return {saved:!!value};
     }
     if(method==='claudeApiKey.set'){
       const value=String(params?.value??'').trim();if(value.length>4096||value&&/[\r\n\0]/.test(value))throw new Error('API Key 格式无效。');

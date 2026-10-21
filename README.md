@@ -13,14 +13,28 @@ AIROOM 是一个装在自己电脑上的“AI 工作室”。
 
 > 当前版本：**0.1**
 
-[下载最新版本](https://github.com/tonyAmadeus/offAice/releases/latest) · [技术说明](docs/技术说明.md) · [用 AI 修改和部署 AIROOM](docs/AI协作开发指南.md)
+本仓库是基于 [tonyAmadeus/offAice](https://github.com/tonyAmadeus/offAice) 的源码增强版。新增功能请按下方源码方式启动；上游发行包不包含本仓库尚未打包的改动。
+
+| 本仓库新增功能 | 使用说明 |
+| --- | --- |
+| Antigravity CLI 清单下载、连接、选模和原生额度展示 | [Antigravity](docs/ANTIGRAVITY.md) |
+| DeepSeek Harness 自定义 API、思考强度及新运行时兼容 | [DSH 配置](docs/DSH-API.md) |
+| ZCode 自定义 API、思考强度及 Flash 选模修复 | [ZCode 配置](docs/ZCODE-API.md) · [选模修复](docs/ZCODE-MODEL-SELECTION.md) |
+| ZCode 官方 Coding Plan 与 Qoder/Qoder CN Credits 展示 | [ZCode 额度](docs/ZCODE-QUOTA.md) · [Qoder 额度](docs/QODER-QUOTA.md) |
+| 成员回复下显示输入、输出 K/M 和缓存命中率 | [用量统计口径](docs/TOKEN-USAGE.md) |
+
+源码启动需要 Node.js 26 和 npm：克隆本仓库，在项目目录执行一次 `npm ci`，然后双击 `Start-AIROOM-Dev.cmd`。该入口会编译并启动；更新源码后，先从托盘退出旧进程，再重新运行。执行端程序仍通过应用清单下载并配置。
+
+[下载上游原版](https://github.com/tonyAmadeus/offAice/releases/latest) · [技术说明](docs/技术说明.md) · [用 AI 修改和部署 AIROOM](docs/AI协作开发指南.md)
+
+以下免安装版、安装版说明对应上游发行包：
 
 - **免安装版**：下载 `AIROOM-0.1.0-Windows-x64-Green.zip`，**完整解压后双击 `AIROOM.exe`**；
 - **安装版**：下载 `AIROOM-Setup-0.1.0.exe`，按向导安装，可选择安装目录，附带卸载程序。
 
 支持 Windows 10 / 11 x64，无需安装 Node.js 或 npm。下载页同时提供 SHA-256 校验文件。
 
-程序包不含账号、聊天记录或预装的成员程序。首次启动是空白工作台，没有人物卡或预配置连接。到“设置与连接 → 连接与版本”下载官方程序，或手动配置本机执行端，再登录并添加人物卡；下载和使用成员需要联网。某些成员程序另需 Node.js，按界面提示配置。
+程序包不含账号、聊天记录或预装的成员程序。首次启动是空白工作台，没有人物卡或预配置连接。到“设置与连接 → 连接与版本”从清单下载并自动配置官方程序，再登录并添加人物卡；下载和使用成员需要联网。某些成员程序另需 Node.js，按界面提示配置。
 
 ---
 
@@ -314,6 +328,12 @@ AIROOM 是一个装在自己电脑上的“AI 工作室”。
 **调用次数和我的账单对得上吗？**
 AIROOM 的次数是它自己发出的请求数，不等于订阅账单。真实的额度和费用以各官方程序返回的数据为准。
 
+**DeepSeek Harness 可以使用自己的中转/API 吗？**
+可以。在“连接与版本 → DeepSeek Harness”中选择“自定义中转/API”，填写 API 根地址、模型名称和该服务的 API Key。接口默认使用 OpenAI Chat Completions，也可选择 OpenAI Responses 或 Anthropic Messages。[配置说明](docs/DSH-API.md)
+
+**ZCode CLI 可以使用自己的中转/API 吗？**
+可以。在 ZCode CLI 连接的“登录方式”中选择“自定义中转/API”，填写服务地址、模型和 API Key，默认采用 OpenAI Chat Completions。[配置说明](docs/ZCODE-API.md)
+
 **换了电脑或重装怎么办？**
 - 在旧电脑上备份；
 - 把 `.airoom\backups` 里的备份拷到新电脑；
@@ -337,6 +357,16 @@ AIROOM 的次数是它自己发出的请求数，不等于订阅账单。真实�
 - **“修改这张图”和生成图片**：需要使用 Codex、并且允许联网的成员。
 
 ---
+
+## Antigravity CLI（清单下载）
+
+进入“设置与连接 → 连接与版本 → 从清单添加”，选择 **Antigravity CLI**。阅读并同意厂商条款后，点击 **下载并自动配置**，无需填写本机程序路径。手动添加入口已移除，已有连接和历史记录保留。
+
+AIROOM 从 Google 官方 Windows x64 发行源下载原生程序，核对官方 SHA-512 后进行版本和连接检查；程序放入 AIROOM 自己的版本目录，不运行系统安装脚本、不修改 PATH。下载完成后，在连接卡点击“打开登录终端”，完成原生授权并关闭终端，再检查连接、创建人物卡。模型清单及打开终端都不能证明登录成功。
+
+连接可用于文字对话、圆桌和项目工作，支持模型选择、显式会话恢复、任务中止和原生模型组额度查询。当前不支持图片、运行中追加指令或进程复用。需要人工批准的工具在无交互模式下会被拒绝，不自动放宽权限。设置和文件目录由 AIROOM 独立管理；原生系统钥匙串可能共享登录，实际使用前请核对账号，不能仅凭目录独立宣称账号隔离已验证。
+
+实现依据和验证方法见 [Antigravity 适配说明](docs/ANTIGRAVITY.md)。
 
 ## 给维护者
 

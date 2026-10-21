@@ -11,6 +11,7 @@ import { npmLaunch } from './node-runtime';
 import { installZcode, completeZcodeEntry, latestZcodeVersion } from './zcode-install';
 import {installQoder,completeQoderEntry,latestQoderVersion} from './qoder-install';
 import {installCursor,completeCursorEntry,latestCursorVersion,isCursorVersion} from './cursor-install';
+import {installAntigravity,completeAntigravityEntry,latestAntigravityVersion} from './antigravity-install';
 
 export const MEMBER_PACKAGES = Object.fromEntries(ALL_EXECUTOR_CATALOG.map(item=>[item.id,item.packageName])) as Record<CatalogId,string>;
 /** Diagnostic baselines only; real checks and completed native tasks determine the displayed state. */
@@ -27,6 +28,7 @@ export function membersRoot(data: string): string { return path.join(data, 'memb
 const versionDirectory = (data: string, member: CatalogId, version: string) => path.join(membersRoot(data), member, version);
 function inside(root: string, target: string) { const rel = path.relative(root, target); return !!rel && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel); }
 export function installedEntry(prefix: string, member: CatalogId): string | undefined {
+  if(member==='antigravity')return completeAntigravityEntry(prefix);
   if(member==='cursor')return completeCursorEntry(prefix);
   if(member==='zcode')return completeZcodeEntry(prefix);
   if(member==='qoder'||member==='qodercn')return completeQoderEntry(prefix,undefined,member);
@@ -59,6 +61,7 @@ function installFacts(prefix: string, member: CatalogId, version: string, strict
   return { entry, lockSha256: digest(bytes), entrySize: statSync(entry).size };
 }
 function completeEntry(prefix: string, member: CatalogId, version: string): string | undefined {
+  if(member==='antigravity')return completeAntigravityEntry(prefix,version);
   if(member==='cursor')return completeCursorEntry(prefix,version);
   if(member==='zcode')return completeZcodeEntry(prefix,version);
   if(member==='qoder'||member==='qodercn')return completeQoderEntry(prefix,version,member);
@@ -111,6 +114,7 @@ export const runNpm: NpmRunner = async (args, env, cwd, timeoutMs) => {
 /** npm 12 returns a one-element JSON array for a single view field; older npm returns the scalar. */
 export function npmViewValue(stdout:string):unknown {const value=JSON.parse(stdout.trim());return Array.isArray(value)&&value.length===1?value[0]:value;}
 export async function latestVersion(member: CatalogId, env: NodeJS.ProcessEnv, cwd: string): Promise<string> {
+  if(member==='antigravity')return latestAntigravityVersion(env);
   if(member==='cursor')return latestCursorVersion(env);
   if(member==='zcode')return latestZcodeVersion(env);
   if(member==='qoder'||member==='qodercn')return latestQoderVersion(env,member);
@@ -171,6 +175,7 @@ export async function installVersion(data: string, member: CatalogId, version: s
   const stopSampling=()=>{clearInterval(sampler);sampleRevision++;};
   try {
     await mkdir(root, { recursive: true }); await managedTarget(data, member, prefix);
+    if(member==='antigravity')return await installAntigravity(root,version,env,{progress:options.progress,publish:(source,target)=>moveManaged(data,member,source,target)});
     if(member==='cursor')return await installCursor(root,version,env,options.progress,(source,target)=>moveManaged(data,member,source,target));
     if(member==='zcode')return await installZcode(root,version,env,options.progress,(source,target)=>moveManaged(data,member,source,target));
     if(member==='qoder'||member==='qodercn')return await installQoder(root,version,env,options.progress,(source,target)=>moveManaged(data,member,source,target),member);

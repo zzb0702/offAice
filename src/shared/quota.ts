@@ -1,4 +1,5 @@
 import type { AccountBalance, AccountWallet, MemberQuota, ProviderId, QuotaWindow } from './types';
+import {qoderCreditsReport,creditsFresh,creditsExhausted} from './qoder-quota';
 
 export const QUOTA_STALE_MS = 15 * 60 * 1000;
 const object = (value: unknown): Record<string, any> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {};
@@ -57,6 +58,30 @@ export function balanceAmount(value:string,places?:2){
 export function quotaReport(provider: ProviderId, payload: unknown, checkedAt: string, source: MemberQuota['source']): MemberQuota | undefined {
   const received=object(payload),fullCodexQuery=provider==='codex'&&Object.hasOwn(received,'accountRateLimits');
   const data=fullCodexQuery?object(received.accountRateLimits):received,windows:QuotaWindow[]=[];
+  if(provider.startsWith('acp-')&&Object.hasOwn(data,'qoderUsage')){
+    const credits=qoderCreditsReport(data.qoderUsage,checkedAt);
+    return {provider,windows,checkedAt,source,kind:'credits',credits,queryStatus:credits.status};
+  }
+  if(provider.startsWith('acp-')&&Object.hasOwn(data,'zcodeUsage')){
+    if(Array.isArray(data.zcodeUsage)&&data.zcodeUsage.length<=3)for(const raw of data.zcodeUsage){
+      const row=object(raw),usedPercent=number(row.usedPercent);
+      if(!['five_hour','seven_day','monthly_mcp'].includes(row.id)||usedPercent===undefined||usedPercent<0||usedPercent>100||windows.some(window=>window.id===row.id))continue;
+      windows.push({id:row.id,label:row.id==='monthly_mcp'?'每月 MCP':label(row.id),usedPercent,resetsAt:reset(row.resetsAt),exhausted:usedPercent>=100,warning:usedPercent>=80,checkedAt,...(row.id==='monthly_mcp'?{scope:'tools' as const}:{})});
+    }
+    windows.sort((a,b)=>['five_hour','seven_day','monthly_mcp'].indexOf(a.id)-['five_hour','seven_day','monthly_mcp'].indexOf(b.id));
+    return {provider,windows,checkedAt,source,kind:'coding-plan',queryStatus:windows.length?'ready':'unavailable'};
+  }
+  if(provider.startsWith('acp-')&&Object.hasOwn(data,'antigravityUsage')){
+    const rows=data.antigravityUsage;
+    if(Array.isArray(rows)&&rows.length<=200)for(const raw of rows){
+      const row=object(raw),group=typeof row.group==='string'?row.group.trim():'',remaining=number(row.remainingPercent),resetsAt=reset(row.resetsAt);
+      if(!group||group.length>120||/[\x00-\x1f\x7f]/.test(group)||remaining===undefined||remaining<0||remaining>100||!resetsAt||!['five_hour','seven_day','current'].includes(row.period))continue;
+      const id=JSON.stringify([group,row.period]);if(windows.some(window=>window.id===id))continue;
+      const usedPercent=100-remaining;
+      windows.push({id,label:`${group} · ${row.period==='current'?'剩余额度':label(row.period)}`,usedPercent,resetsAt,exhausted:remaining===0,warning:remaining<=20,checkedAt});
+    }
+    return {provider,windows,checkedAt,source,kind:'model-groups',queryStatus:windows.length?'ready':'unavailable'};
+  }
   if(provider==='dsh'&&Object.hasOwn(data,'accountBalance'))return {provider,windows,checkedAt,source,balance:accountBalanceReport(data.accountBalance,checkedAt)};
   if(provider==='claude'&&Object.hasOwn(data,'accountUsage')){
     const rows=object(object(data.accountUsage).rate_limits).limits;
@@ -98,7 +123,7 @@ export function quotaReport(provider: ProviderId, payload: unknown, checkedAt: s
 
 export function mergeQuota(previous: MemberQuota | undefined, report: MemberQuota): MemberQuota {
   // A native /usage query is a full account sample, including a truthful unavailable response.
-  if(report.queryStatus&&(!previous||Date.parse(report.checkedAt)>=Date.parse(previous.checkedAt)))return report;
+  if(report.queryStatus)return !previous||Date.parse(report.checkedAt)>=Date.parse(previous.checkedAt)?report:previous;
   const windows=new Map(previous?.windows.map(window=>[window.id,window]));
   if(report.provider==='claude'&&report.windows.some(window=>window.id!=='current')&&!report.windows.some(window=>window.exhausted)&&(!previous||Date.parse(report.checkedAt)>=Date.parse(previous.checkedAt)))windows.delete('current');
   for(const window of report.windows)if(!windows.has(window.id)||Date.parse(window.checkedAt)>=Date.parse(windows.get(window.id)!.checkedAt))windows.set(window.id,window);
@@ -114,8 +139,15 @@ export function balanceFresh(balance:AccountBalance,now=Date.now()){
 }
 /** Explicitly named members/questions/closure are handled by the coordinator before this weight. */
 export function quotaPreference(quota: MemberQuota | undefined, now=Date.now(), model?:string) {
+  if(quota?.kind==='credits'){
+    if(creditsExhausted(quota.credits,now))return 0;
+    const used=creditsFresh(quota.credits,now)?quota.credits?.usedPercent:undefined;
+    return used===undefined?1:used>=95?0.1:used>=80?0.35:1;
+  }
+  // A depleted native group must not suspend other model groups with remaining quota.
+  if(quota?.kind==='model-groups')return 1;
   if(quota?.provider==='dsh'&&balanceExhausted(quota.balance,now))return 0;
-  const windows=quota?.windows.filter(window=>quotaFresh(window,now)&&(!model||window.id!=='seven_day_opus'&&window.id!=='seven_day_sonnet'||window.id==='seven_day_opus'&&/opus/i.test(model)||window.id==='seven_day_sonnet'&&/sonnet/i.test(model)))??[];
+  const windows=quota?.windows.filter(window=>window.scope!=='tools'&&quotaFresh(window,now)&&(!model||window.id!=='seven_day_opus'&&window.id!=='seven_day_sonnet'||window.id==='seven_day_opus'&&/opus/i.test(model)||window.id==='seven_day_sonnet'&&/sonnet/i.test(model)))??[];
   if(windows.some(window=>window.exhausted||window.usedPercent!==undefined&&window.usedPercent>=100))return 0;
   if(windows.some(window=>window.usedPercent!==undefined&&window.usedPercent>=95))return 0.1;
   if(windows.some(window=>window.warning||window.usedPercent!==undefined&&window.usedPercent>=80))return 0.35;
@@ -123,5 +155,6 @@ export function quotaPreference(quota: MemberQuota | undefined, now=Date.now(), 
 }
 /** Only a current native 100% sample permits skipping a joint review's author response. */
 export function quotaAt100(quota:MemberQuota|undefined,now=Date.now(),model?:string){
-  return quotaPreference(quota,now,model)===0&&Boolean(quota?.windows.some(window=>quotaFresh(window,now)&&window.usedPercent!==undefined&&window.usedPercent>=100&&(!['seven_day_opus','seven_day_sonnet'].includes(window.id)||Boolean(model)&&(window.id==='seven_day_opus'&&/opus/i.test(model!)||window.id==='seven_day_sonnet'&&/sonnet/i.test(model!)))));
+  if(quota?.kind==='credits')return creditsExhausted(quota.credits,now)&&quota.credits?.usedPercent===100;
+  return quotaPreference(quota,now,model)===0&&Boolean(quota?.windows.some(window=>window.scope!=='tools'&&quotaFresh(window,now)&&window.usedPercent!==undefined&&window.usedPercent>=100&&(!['seven_day_opus','seven_day_sonnet'].includes(window.id)||Boolean(model)&&(window.id==='seven_day_opus'&&/opus/i.test(model!)||window.id==='seven_day_sonnet'&&/sonnet/i.test(model!)))));
 }

@@ -6,6 +6,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {fetch,ProxyAgent} from 'undici';
 import {registerSecret} from './security';
 import type {CatalogLoginState} from '../shared/executor-catalog';
+import {zcodeProviderConfig} from './zcode-provider-config';
 
 // Protocol and credential format from zai-org/ZCode: cli-oauth.ts, coding-plan-api-key.ts,
 // credential-cipher.ts and standalone-account-provider-runtime.ts. CLI 0.16.9 ignores
@@ -122,7 +123,7 @@ export async function loginZcodeBigmodel(home:string,command:string,env:NodeJS.P
     const config=await json(path.join(directory,'provider_config.json'));
     if(!object(config)||config.config!==undefined&&!object(config.config))throw new Error('ZCode 原有模型配置格式无效，已保留原文件。');
     await updateJson(path.join(directory,'credentials.json'),existing=>{if(Object.values(existing).some(value=>typeof value!=='string'))throw new Error('ZCode 原有登录配置格式无效，已保留原文件。');return {...existing,...Object.fromEntries(Object.entries(credentials).map(([key,value])=>[key,cipher.encrypt(value)]))};},active);
-    await updateJson(path.join(directory,'provider_config.json'),existing=>({...existing,schemaVersion:existing.schemaVersion??1,config:{...existing.config,defaultModelSelection:{providerId:provider,modelId:model}}}),active);
+    await updateJson(path.join(directory,'provider_config.json'),existing=>zcodeProviderConfig(existing,{providerId:provider,modelId:model}),active);
     active.throwIfAborted();return {provider,model};
   }catch(error){
     if(signal.aborted)throw new Error('登录已取消。');

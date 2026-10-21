@@ -150,6 +150,8 @@
 .room-line.enter { animation: rise .28s var(--ease) both; }
 .room-line.mine { align-self: flex-end; }
 .room-bubble-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.room-token-usage { display: flex; flex-wrap: wrap; gap: 2px 12px; padding: 0 3px; color: var(--ink-3); font-size: var(--fs-xs); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.room-token-usage .token-usage-scope { opacity: .85; }
 .room-line.mine .room-bubble-wrap { align-items: flex-end; }
 .room-meta { display: flex; align-items: center; gap: 7px; font-size: var(--fs-sm); color: var(--ink-3); }
 .room-meta strong { color: var(--m-ink, var(--ink)); font-size: var(--fs-md); }

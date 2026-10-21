@@ -3,7 +3,6 @@ import { Download, KeyRound, LoaderCircle, Plus, RefreshCw, Trash2 } from 'lucid
 import { CATALOG_REVISION, EXECUTOR_CATALOG, catalogEntry, catalogProvider, type CatalogId, type CatalogStatus, type NodeRuntimeInfo, type CatalogLoginState } from '../shared/executor-catalog';
 import type { AcpExecutor, PermissionMember, Snapshot } from '../shared/types';
 import type { MemberInstallation } from '../shared/member-versions';
-import { AcpFields, emptyAcpDraft } from './executors';
 import type { Invoke, Notify } from './ui';
 
 const PHASES={installing:'下载与安装',files:'校验安装文件',launch:'检查程序启动',connection:'检查连接与登录状态'};
@@ -17,9 +16,8 @@ function readLoginStatus(invoke:Invoke,id:string){
   const task=invoke<CatalogLoginState|undefined>('executor.loginStatus',{id},undefined,{background:true}).finally(()=>{if(reads!.get(id)===task)reads!.delete(id);});reads.set(id,task);return task;
 }
 export function ExecutorCatalog({snapshot,invoke,notify,beforeOperation,onSelected,onNewMember}:{snapshot:Snapshot;invoke:Invoke;notify:Notify;beforeOperation:()=>Promise<void>;onSelected:(item:CatalogStatus)=>void;onNewMember:(provider:PermissionMember)=>void}){
-  const [view,setView]=useState<'closed'|'catalog'|'manual'>(!snapshot.providers.some(item=>item.path)?'catalog':'closed'),[items,setItems]=useState<CatalogStatus[]>(()=>EXECUTOR_CATALOG.map(entry=>({entry,provider:catalogProvider(entry.id),installed:[],configured:false,consented:false}))),[selected,setSelected]=useState<CatalogId>(),[loading,setLoading]=useState(true),[loadError,setLoadError]=useState(''),[progressError,setProgressError]=useState('');
+  const [view,setView]=useState<'closed'|'catalog'>(!snapshot.providers.some(item=>item.path)?'catalog':'closed'),[items,setItems]=useState<CatalogStatus[]>(()=>EXECUTOR_CATALOG.map(entry=>({entry,provider:catalogProvider(entry.id),installed:[],configured:false,consented:false}))),[selected,setSelected]=useState<CatalogId>(),[loading,setLoading]=useState(true),[loadError,setLoadError]=useState(''),[progressError,setProgressError]=useState('');
   const [version,setVersion]=useState(''),[agree,setAgree]=useState(false),[busy,setBusy]=useState(''),[progress,setProgress]=useState<MemberInstallation>(),[result,setResult]=useState('');
-  const [draft,setDraft]=useState(emptyAcpDraft);
   const reload=useCallback(async()=>{setLoading(true);setLoadError('');try{const value=await invoke<CatalogReply>('catalog.list',undefined,undefined,{background:true});if(!value||!Array.isArray(value.items))throw new Error('执行端清单暂未返回。');setItems(value.items);return value.items;}catch(error){setLoadError((error as Error).message);throw error;}finally{setLoading(false);}},[invoke]);
   useEffect(()=>{if(view==='catalog')void reload().catch(()=>{});},[view,reload]);
   useEffect(()=>{
@@ -40,13 +38,12 @@ export function ExecutorCatalog({snapshot,invoke,notify,beforeOperation,onSelect
       }
     }catch(error){setResult((error as Error).message);}finally{setBusy('');setProgress(undefined);}
   }
-  async function manual(){setBusy('manual');try{const saved=await invoke<AcpExecutor>('executor.save',{executor:draft});setDraft(emptyAcpDraft);setView('closed');notify('连接已添加，可以创建人物卡。');onNewMember(saved.id);}catch{}finally{setBusy('');}}
+
   const info=snapshot.providers.find(info=>info.id===provider),executor=snapshot.executors?.find(executor=>executor.id===provider);
   return <section className="catalog-settings" data-provider="catalog" aria-label="添加执行端">
     <div className="settings-section-heading"><h3>添加执行端</h3></div>
-    <p className="settings-description">选择官方程序，下载到 AIROOM 后再登录。已有安装可以继续使用。</p>
-    <div className="catalog-actions"><button className="button secondary" onClick={()=>setView(view==='catalog'?'closed':'catalog')} disabled={!!busy}><Download size={14}/>从清单添加</button><button className="button quiet" onClick={()=>setView(view==='manual'?'closed':'manual')} disabled={!!busy}><Plus size={14}/>手动添加</button></div>
-    {view==='manual'&&<div className="catalog-detail"><AcpFields value={draft} onChange={setDraft} invoke={invoke}/><button className="button primary" disabled={!!busy||!snapshot.backendReady||!draft.command.trim()||!draft.name.trim()} onClick={()=>void manual()}>保存连接并创建人物卡</button></div>}
+    <p className="settings-description">从清单选择执行端，下载到 AIROOM 并自动配置后再登录。</p>
+    <div className="catalog-actions"><button className="button secondary" onClick={()=>setView(view==='catalog'?'closed':'catalog')} disabled={!!busy}><Download size={14}/>从清单添加</button></div>
     {view==='catalog'&&<div className="catalog-detail">
       {loading&&<p className="provider-detail" role="status">正在读取已安装版本…</p>}{loadError&&<p className="provider-detail" role="status">{loadError}<button className="link-button" onClick={()=>void reload().catch(()=>{})}>重新读取清单</button></p>}
       <div className="catalog-grid" role="group" aria-label="官方执行端清单">{items.map(item=><button key={item.entry.id} className={`catalog-choice ${selected===item.entry.id?'selected':''}`} disabled={!!busy} onClick={()=>choose(item.entry.id)}><strong>{item.entry.name}</strong><small>{item.entry.vendor} · {item.entry.license}</small><small>{item.selectedVersion?`正在使用 ${item.selectedVersion}`:item.configured?'已有连接':`推荐 ${item.entry.recommendedVersion}`}</small></button>)}</div>
@@ -54,8 +51,8 @@ export function ExecutorCatalog({snapshot,invoke,notify,beforeOperation,onSelect
         <h4>{entry.name} · {entry.vendor}</h4>
         <p><a href={entry.homepage} onClick={event=>{event.preventDefault();void invoke('catalog.openLink',{id:entry.id,kind:'homepage'}).catch(()=>{});}}>官方主页</a> · <a href={entry.licenseUrl} onClick={event=>{event.preventDefault();void invoke('catalog.openLink',{id:entry.id,kind:'licenseUrl'}).catch(()=>{});}}>{entry.license} 许可证</a> · <a href={entry.termsUrl} onClick={event=>{event.preventDefault();void invoke('catalog.openLink',{id:entry.id,kind:'termsUrl'}).catch(()=>{});}}>厂商条款</a></p>
         <p className="provider-detail">{entry.capabilities.join(' · ')}。{entry.limitations.join(' ')}</p>
-        <p className="provider-detail">{entry.id==='cursor'?'运行环境：官方包自带 Node.js':`最低 Node.js：${entry.minimumNode}`}；已通过隔离连接检查的版本：{entry.verifiedVersions.join('、')||'本版尚无记录'}。真实账号调用需另行验收。</p>
-        <p className="provider-detail">登录方式：{entry.authentication.map(item=>item.label).join(' / ')}。{entry.distribution==='zcode-official'?'安装来源：ZCode 官方 Windows 发行包；下载后核对官方 SHA-512。':entry.distribution==='qoder-official'?'安装来源：Qoder 官方原生 Windows 发行包；下载后核对官方 SHA-256。':entry.distribution==='cursor-official'?'安装来源：Cursor 官方 Windows 发行包；独立保存运行环境并核对安装文件清单。':`安装来源：${entry.packageName}；当前下载源：${snapshot.settings.npmRegistry==='npmmirror'?'npmmirror（与官方完整性记录核对）':'npm 官方源'}。`}</p>
+        <p className="provider-detail">{entry.id==='antigravity'?'运行环境：原生 Windows x64 程序':entry.id==='cursor'?'运行环境：官方包自带 Node.js':`最低 Node.js：${entry.minimumNode}`}；已通过隔离连接检查的版本：{entry.verifiedVersions.join('、')||'本版尚无记录'}。真实账号调用需另行验收。</p>
+        <p className="provider-detail">登录方式：{entry.authentication.map(item=>item.label).join(' / ')}。{entry.distribution==='antigravity-official'?'安装来源：Google 官方 Windows 发行包；下载后核对官方 SHA-512。':entry.distribution==='zcode-official'?'安装来源：ZCode 官方 Windows 发行包；下载后核对官方 SHA-512。':entry.distribution==='qoder-official'?'安装来源：Qoder 官方原生 Windows 发行包；下载后核对官方 SHA-256。':entry.distribution==='cursor-official'?'安装来源：Cursor 官方 Windows 发行包；独立保存运行环境并核对安装文件清单。':`安装来源：${entry.packageName}；当前下载源：${snapshot.settings.npmRegistry==='npmmirror'?'npmmirror（与官方完整性记录核对）':'npm 官方源'}。`}</p>
         <label className="catalog-consent"><input type="checkbox" checked={agree} onChange={event=>setAgree(event.target.checked)} disabled={!!busy}/>我已了解并同意该厂商条款</label>
         <label className="field compact">下载版本<input aria-label="执行端下载版本" value={version} onChange={event=>setVersion(event.target.value)} disabled={!!busy}/></label>
         <div className="catalog-actions"><button className="button primary" disabled={loading||!!loadError||!!busy||!agree||!snapshot.backendReady||!version.trim()} onClick={()=>void action('install')}>{busy==='install'?<LoaderCircle className="spin" size={14}/>:<Download size={14}/>}下载并自动配置</button><button className="button quiet" disabled={loading||!!loadError||!!busy||!snapshot.backendReady} onClick={()=>void action('latest')}><RefreshCw size={14}/>检查新版本</button></div>
@@ -68,14 +65,22 @@ export function ExecutorCatalog({snapshot,invoke,notify,beforeOperation,onSelect
           <button className="button secondary" disabled={!!busy||!snapshot.backendReady} onClick={()=>onNewMember(provider as PermissionMember)}><Plus size={14}/>用这个执行端创建人物卡</button>
         </>}
         <h4>版本管理</h4>
-        {item.installed.length?item.installed.map(installed=><div className="catalog-version" key={installed}><span>{installed}{item.selectedVersion===installed?' · 正在使用':''}</span><button className="button small secondary" disabled={!!busy||installed===item.selectedVersion||!snapshot.backendReady||!agree&&!item.consented} onClick={()=>void action('use',installed)}>切换 / 回退</button><button className="button small quiet danger" disabled={!!busy||installed===item.selectedVersion||!snapshot.backendReady} onClick={()=>{if(window.confirm(`删除 ${entry.name} ${installed} 的程序文件？聊天记录和登录配置会保留，后续回复使用当前版本。`))void action('remove',installed);}}><Trash2 size={12}/>删除版本</button></div>):<p className="provider-detail">尚未下载托管版本。手动添加的连接保持原样。</p>}
+        {item.installed.length?item.installed.map(installed=><div className="catalog-version" key={installed}><span>{installed}{item.selectedVersion===installed?' · 正在使用':''}</span><button className="button small secondary" disabled={!!busy||installed===item.selectedVersion||!snapshot.backendReady||!agree&&!item.consented} onClick={()=>void action('use',installed)}>切换 / 回退</button><button className="button small quiet danger" disabled={!!busy||installed===item.selectedVersion||!snapshot.backendReady} onClick={()=>{if(window.confirm(`删除 ${entry.name} ${installed} 的程序文件？聊天记录和登录配置会保留，后续回复使用当前版本。`))void action('remove',installed);}}><Trash2 size={12}/>删除版本</button></div>):<p className="provider-detail">尚未下载托管版本。已有连接保持原样。</p>}
       </>}
     </div>}
   </section>;
 }
-export function CatalogLogin({executor,snapshot,invoke,notify}:{executor:AcpExecutor;snapshot:Snapshot;invoke:Invoke;notify:Notify}){
+type CatalogLoginProps={executor:AcpExecutor;snapshot:Snapshot;invoke:Invoke;notify:Notify;onSaved?:(executor:AcpExecutor)=>void};
+export function CatalogLogin(props:CatalogLoginProps){return props.executor.adapter==='antigravity'?<AntigravityCatalogLogin {...props}/>:<StandardCatalogLogin {...props}/>;}
+function AntigravityCatalogLogin({executor,snapshot,invoke,notify}:CatalogLoginProps){
+  const [busy,setBusy]=useState(false),[message,setMessage]=useState('');
+  async function login(){setBusy(true);try{const result=await invoke<{detail:string}>('executor.authenticate',{id:executor.id});setMessage(result.detail);notify(result.detail);}catch{}finally{setBusy(false);}}
+  return <div className="catalog-login"><p className="provider-detail">在原生终端完成 Google 账号授权，关闭终端后会自动检查登录。也可点击“检查连接”，通过原生额度查询核对认证，不发送模型消息。本机其他 Antigravity 入口可能共用登录。</p><div className="catalog-actions"><button className="button secondary" disabled={busy||!snapshot.backendReady} onClick={()=>void login()}><KeyRound size={13}/>打开登录终端</button><button className="button quiet" disabled={busy||!snapshot.backendReady} onClick={()=>void invoke('provider.probe',{provider:executor.id}).catch(()=>{})}><RefreshCw size={13}/>检查连接</button></div>{message&&<p role="status">{message}</p>}</div>;
+}
+function StandardCatalogLogin({executor,snapshot,invoke,notify,onSaved}:CatalogLoginProps){
   const entry=catalogEntry(executor.catalogId);
-  const [authId,setAuthId]=useState(executor.authentication??(entry.id==='zcode'?'zai':entry.authentication[0].id)),[key,setKey]=useState(''),[model,setModel]=useState(executor.env.OPENAI_MODEL??executor.env.KIMI_MODEL_NAME??executor.model??''),[baseUrl,setBaseUrl]=useState(executor.env.OPENAI_BASE_URL??''),[busy,setBusy]=useState(false);
+  const [authId,setAuthId]=useState(executor.authentication??(entry.id==='zcode'?'zai':entry.authentication[0].id)),[key,setKey]=useState(''),[model,setModel]=useState(executor.env.AIROOM_ZCODE_MODEL??executor.env.OPENAI_MODEL??executor.env.KIMI_MODEL_NAME??executor.model??''),[baseUrl,setBaseUrl]=useState(executor.env.AIROOM_ZCODE_BASE_URL??executor.env.OPENAI_BASE_URL??''),[busy,setBusy]=useState(false);
+  const [apiProtocol,setApiProtocol]=useState(executor.env.AIROOM_ZCODE_API_PROTOCOL??'openai-completions');
   const auth=entry.authentication.find(item=>item.id===authId)!;
   const modelOptions=entry.id==='opencode'?(snapshot.providers.find(info=>info.id===executor.id)?.modelOptions??[]).filter(option=>option.id.startsWith(authId+'/')):[];
   const [customModel,setCustomModel]=useState(false);
@@ -83,8 +88,9 @@ export function CatalogLogin({executor,snapshot,invoke,notify}:{executor:AcpExec
   useEffect(()=>{let live=true,pending=false;const check=async()=>{if(pending)return;pending=true;try{const state=await readLoginStatus(invoke,executor.id);if(live){setLogin(state);setStatusError('');}}catch{if(live)setStatusError('登录状态暂未更新，稍后会再次检查。');}finally{pending=false;}};void check();const timer=setInterval(()=>void check(),1500);return()=>{live=false;clearInterval(timer);};},[executor.id,invoke]);
   const loggingIn=login?.phase==='starting'||login?.phase==='waiting'||login?.phase==='checking';
   async function save(clear=false){const value=key;setKey('');setBusy(true);try{
-    await invoke('catalog.credentials',{id:entry.id,authentication:auth.id,...(value?{value}:{}),clear,model,baseUrl});
-    if(entry.id==='zcode'&&!clear){const catalog=await invoke<CatalogReply>('catalog.list'),status=catalog.items.find(item=>item.entry.id==='zcode');if(status?.needsRepair&&status.selectedVersion){notify('正在补齐 ZCode 官方登录资源，下载校验完成后继续授权。');await invoke('catalog.install',{id:'zcode',version:status.selectedVersion,revision:CATALOG_REVISION});}}
+    const saved=await invoke<{executor:AcpExecutor}>('catalog.credentials',{id:entry.id,authentication:auth.id,...(value?{value}:{}),clear,model:clear&&entry.id==='zcode'?executor.model:model,baseUrl:clear&&entry.id==='zcode'?executor.env.AIROOM_ZCODE_BASE_URL:baseUrl,apiProtocol:clear&&entry.id==='zcode'?executor.env.AIROOM_ZCODE_API_PROTOCOL:apiProtocol});
+    if(saved.executor)onSaved?.(saved.executor);
+    if(entry.id==='zcode'&&auth.kind==='browser'&&!clear){const catalog=await invoke<CatalogReply>('catalog.list'),status=catalog.items.find(item=>item.entry.id==='zcode');if(status?.needsRepair&&status.selectedVersion){notify('正在补齐 ZCode 官方登录资源，下载校验完成后继续授权。');await invoke('catalog.install',{id:'zcode',version:status.selectedVersion,revision:CATALOG_REVISION});}}
     if(auth.kind==='browser'&&!clear){await invoke('executor.authenticate',{id:executor.id,methodId:auth.id});setLogin(await readLoginStatus(invoke,executor.id));}
     else await invoke('provider.probe',{provider:executor.id});
     notify(clear?'已清除密钥。':auth.kind==='api'?'密钥已加密保存。真实模型调用仍需验证。':'官方登录流程已结束，请核对连接状态。');
@@ -94,13 +100,14 @@ export function CatalogLogin({executor,snapshot,invoke,notify}:{executor:AcpExec
     <label className="field compact">登录方式<select aria-label="登录方式" value={authId} onChange={event=>{setAuthId(event.target.value);setKey('');if(entry.id==='opencode')setModel('');}} disabled={busy||loggingIn}>{entry.authentication.map(auth=><option key={auth.id} value={auth.id}>{auth.label}</option>)}</select></label>
     {auth.kind==='api'&&<>
       <p className="provider-detail">{auth.description??(auth.billing==='subscription'?'使用所选账号的订阅额度。':'按所选厂商 API 用量计费。')}密钥由 Windows 加密保存，只在运行该程序时传入。{executor.secretKeys?.length?'已有密钥；留空保留。':''}</p>
-      <label className="field compact">{auth.secretLabel??'API Key'}<input type="password" autoComplete="off" aria-label={`${entry.name} API Key`} value={key} onChange={event=>setKey(event.target.value)} disabled={busy||loggingIn}/><small>{auth.secretKeys?.join('、')}</small></label>
+      <label className="field compact">{auth.secretLabel??'API Key'}<input type="password" autoComplete="off" aria-label={`${entry.name} API Key`} value={key} onChange={event=>setKey(event.target.value)} disabled={busy||loggingIn}/><small>{entry.id==='zcode'&&authId==='custom-api'?'使用该中转服务自己的密钥；留空保留已保存的密钥。':auth.secretKeys?.join('、')}</small></label>
       {(auth.modelRequired||entry.id==='opencode')&&<label className="field compact">模型
         {entry.id==='opencode'&&modelOptions.length>0&&<select aria-label="OpenCode 模型" value={customModel?'__custom':model} onChange={event=>{setCustomModel(event.target.value==='__custom');if(event.target.value!=='__custom')setModel(event.target.value);}} disabled={busy||loggingIn}><option value="">提供方默认</option>{modelOptions.map(option=><option key={option.id} value={option.id}>{option.label} · {option.id}</option>)}{model&&!modelOptions.some(option=>option.id===model)&&<option value={model}>{model}</option>}<option value="__custom">手动填写模型</option></select>}
         {(entry.id!=='opencode'||!modelOptions.length||customModel)&&<input aria-label={`${entry.name} API 模型`} value={model} onChange={event=>setModel(event.target.value)} placeholder={entry.id==='opencode'?`${authId}/模型；留空使用提供方默认`:''}/>}
         {entry.id==='opencode'&&<small>{modelOptions.length?`当前提供方已列出 ${modelOptions.length} 个模型，由 OpenCode 返回。`:'保存当前提供方的密钥并检查连接后，会列出 OpenCode 返回的模型。'}</small>}
       </label>}
-      {entry.id==='qwen'&&<label className="field compact">API 服务地址<input aria-label="Qwen API 服务地址" value={baseUrl} onChange={event=>setBaseUrl(event.target.value)} placeholder="https://你的服务/v1"/></label>}
+      {(entry.id==='qwen'||entry.id==='zcode'&&authId==='custom-api')&&<label className="field compact">API 服务地址<input aria-label={entry.id==='qwen'?'Qwen API 服务地址':`${entry.name} API 服务地址`} value={baseUrl} onChange={event=>setBaseUrl(event.target.value)} placeholder="https://你的服务/v1"/>{entry.id==='zcode'&&<small>填写 API 根地址，不要附加 /chat/completions。</small>}</label>}
+      {entry.id==='zcode'&&authId==='custom-api'&&<label className="field compact">接口格式<select aria-label="ZCode API 接口格式" value={apiProtocol} onChange={event=>setApiProtocol(event.target.value)}><option value="openai-completions">OpenAI Chat Completions（默认）</option><option value="openai-responses">OpenAI Responses</option><option value="anthropic-messages">Anthropic Messages</option></select></label>}
     </>}
     {auth.kind==='browser'&&auth.description&&<p className="provider-detail">{auth.description}</p>}
     {auth.kind==='browser'&&<button type="button" className="button small quiet danger" disabled={busy||loggingIn||!snapshot.backendReady} onClick={()=>{if(window.confirm(`登出 ${entry.name} 在 AIROOM 中的账号？聊天记录会保留。`))void logout();}}>登出</button>}

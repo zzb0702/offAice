@@ -24,6 +24,7 @@ import {prepareManagedConfig} from './managed-config';
 import {cursorClientRequest} from './cursor-acp';
 import {acpChatLaunch} from './acp-chat';
 import { latestPersona, nativeContextNeedsRefresh } from '../native-context';
+import {queryQoderQuota,qoderQuotaSupported} from '../qoder-quota';
 
 type RpcPacket = { jsonrpc?: string; id?: number | string; method?: string; params?: any; result?: any; error?: { code?: number; message?: string; data?: unknown } };
 
@@ -99,6 +100,11 @@ export class AcpAdapter implements Adapter {
   }
   private environment(base: NodeJS.ProcessEnv):NodeJS.ProcessEnv {
     return { ...(this.executor.catalogId?managedCatalogEnvironment(this.executor,base,this.home(base)):{...base,...this.executor.env}), AIROOM_EXECUTOR_HOME: this.home(base) };
+  }
+  async accountQuota(_settings:Settings,base:NodeJS.ProcessEnv){
+    if(!qoderQuotaSupported(this.executor))return {payload:{qoderUsage:{}},checkedAt:new Date().toISOString(),reason:'unsupported-executor'};
+    const env=this.environment(base),home=this.home(base),program=resolveAcpProgram(this.executor.command,env);
+    return queryQoderQuota(this.executor,{command:program.script?process.execPath:program.file,prefix:program.script?[program.file]:[],path:program.file},env,home);
   }
   private write(packet: RpcPacket) { if(!this.rpc)throw new Error('ACP 连接未启动');this.rpc.send(packet); }
   private request(method:string,params:unknown,timeout=30000):Promise<any> {
@@ -230,6 +236,10 @@ export class AcpAdapter implements Adapter {
     if(this.executor.catalogId&&info.runtimeReady){
       const auth=catalogEntry(this.executor.catalogId!).authentication.find(item=>item.id===this.executor.authentication);
       if(auth?.kind==='api'&&!auth.secretKeys?.every(key=>!!this.executor.env[key])){info.available=false;info.auth='none';info.detail='程序已连接，需要在 AIROOM 中填写 API Key 后使用。未发送模型任务。';}
+    }
+    if(qoderQuotaSupported(this.executor)){
+      const quota=info.available?await this.accountQuota(settings,env).catch(()=>undefined):undefined;
+      info.quota=quota?.payload??{qoderUsage:{}};info.quotaCheckedAt=quota?.checkedAt??new Date().toISOString();
     }
     return info;
   }

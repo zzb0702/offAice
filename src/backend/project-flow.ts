@@ -1017,7 +1017,7 @@ export class ProjectFlowController {
         const task = this.store.get<Task>("flow_tasks", op.targetId);
         const integration = this.store.get<Integration>("flow_integrations", op.targetId);
         const quota = this.store.get<MemberQuota>("quotas", member.provider);
-        const resets = (quota?.windows ?? []).filter(w => w.exhausted || (w.usedPercent ?? 0) >= 100).map(w => w.resetsAt).filter((n): n is number => typeof n === "number" && n * 1000 > Date.now());
+        const resets = (quota?.kind==='model-groups'?[]:quota?.windows ?? []).filter(w => w.scope!=='tools'&&(w.exhausted || (w.usedPercent ?? 0) >= 100)).map(w => w.resetsAt).filter((n): n is number => typeof n === "number" && n * 1000 > Date.now());
         const resetAt = resets.length ? Math.max(...resets) : undefined;
         const stage = (op.kind === "task" ? "task" : kind) as QuotaWait["stage"];
         if (Object.hasOwn(QUOTA_STAGE_LABELS, stage)) {

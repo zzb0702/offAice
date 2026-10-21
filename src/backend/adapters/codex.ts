@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import {nativeTokenUsage} from '../../shared/token-usage';
 import { mkdirSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { Adapter, AdapterContext, AdapterResult, MemberPermissions, ModelOption, ProviderInfo, Settings } from '../../shared/types';
@@ -458,7 +459,14 @@ export class CodexAdapter implements Adapter {
         if (summary) context.emit('reasoning', summary, { id: item.id, publicKind: 'summary' });
       } else if (item.type === 'plan' && method === 'item/completed') context.emit('plan', item.text ?? '', item);
       else if (item.type && !['userMessage', 'reasoning', 'agentMessage'].includes(item.type)) context.emit('tool', `${method === 'item/started' ? '开始' : '结束'}：${item.command ?? item.tool ?? item.type}`, {...item,airoomPhase:method==='item/started'?'started':'completed'});
-    } else if (method === 'thread/tokenUsage/updated' || method === 'account/rateLimits/updated') { this.usage = params; context.emit('usage', '实际用量已更新。', params); }
+    } else if (method === 'thread/tokenUsage/updated' || method === 'account/rateLimits/updated') {
+      this.usage = params;
+      if (method === 'thread/tokenUsage/updated' && params.threadId === this.threadId && params.turnId === this.turnId) {
+        const usage = nativeTokenUsage('codex', params);
+        if (usage) context.recordTokenUsage?.(usage, this.threadId);
+      }
+      context.emit('usage', '实际用量已更新。', params);
+    }
     else if (method === 'error') context.emit('error', params.error?.message ?? describe(params), params);
     else if (method === 'warning' || method === 'configWarning') context.emit('warning', params.message ?? params.summary ?? describe(params), params);
   }

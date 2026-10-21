@@ -120,6 +120,10 @@ export class Store {
     if(this.roomsReady&&entity==='room_threads')value={...(value as RoomThread),roomId:(value as RoomThread).roomId??this.get<RoomThread>(entity,id)?.roomId??'global'};
     if(this.roomsReady&&entity==='room_messages'){
       const message=value as RoomMessage;
+      // Completion/reaction handlers may hold an earlier copy of the message. Preserve its exact run's receipt.
+      const previous=this.get<RoomMessage>(entity,id);
+      const inherited=!previous||previous.runId===message.runId?message.tokenUsage??previous?.tokenUsage:undefined;
+      value={...message,tokenUsage:message.runId?this.get<Run>('runs',message.runId)?.tokenUsage??inherited:undefined};
       if(message.author==='user'&&(message.roomId??'global')==='global'&&!message.system&&!message.contextOnly&&!message.discussionControl)this.nameRoomThread(message.threadId??DEFAULT_ROOM_THREAD,message.text);
     }
     this.sql('INSERT INTO entities(entity,id,value) VALUES(?,?,?) ON CONFLICT(entity,id) DO UPDATE SET value=excluded.value').run(entity,id,JSON.stringify(redact(value)));

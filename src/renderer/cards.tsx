@@ -192,7 +192,7 @@ export function CardEditor({ snapshot, memberId, invoke, notify, onBack, onCance
               {source === 'existing' ? <select aria-label="使用的程序" value={draft.executor} onChange={event => set({ executor: event.target.value as PermissionMember, model: undefined, effort: undefined })}>{executors.map(id => <option key={id} value={id}>{PROVIDER_NAMES[id]} · {connectionLabel(id, snapshot.executors?.find(item => item.id === id))}</option>)}</select>
                 : <small>像 Claude、Codex、DSH 一样单独配置：程序、参数、登录和权限都属于这位成员的连接。</small>}</div>}
         </div>
-        {!existing&&source==='existing'&&<p className="card-preview-note">从清单下载并配置，或手动添加连接后，执行端会自动出现在这里。只下载到电脑、尚未添加到 AIROOM 的程序，需要先添加连接。</p>}
+        {!existing&&source==='existing'&&<p className="card-preview-note">从清单下载并自动配置后，执行端会出现在这里。</p>}
         {connecting && <AcpFields value={program} onChange={setProgram} invoke={invoke} nameHint={draft.name} />}
         <div className="card-image-controls">
           <div className="card-image-actions">

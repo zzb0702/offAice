@@ -1,4 +1,5 @@
 import { observeVersion } from '../compatibility';
+import {nativeTokenUsage} from '../../shared/token-usage';
 import { readClaudeModels } from './claude-models';
 import { plainRoomSpeech, ROOM_READ_TOOLS, roomProjectFiles } from './chat-policy';
 import {defaultBrowserLoginCommand,defaultBrowserLoginEnvironment} from '../login-browser';
@@ -505,6 +506,8 @@ export class ClaudeAdapter implements Adapter {
         if (this.child) void stopOwned(this.child, 5000);
       }, 10000);
       if (value.result && !this.lastText) context.emit('message', value.result, { source: 'assistant', final: true });
+      const tokenUsage = nativeTokenUsage('claude', value);
+      if (tokenUsage) context.recordTokenUsage?.(tokenUsage);
       context.emit('usage', '实际用量已返回。', { usage: value.usage, modelUsage: value.modelUsage, duration_ms: value.duration_ms, num_turns: value.num_turns });
       for (const denial of value.permission_denials ?? []) context.emit('warning', 'Claude 有操作未获批准。', denial);
       this.finishTurn?.();

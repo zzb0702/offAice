@@ -42,8 +42,12 @@ export function normalizeExecutor(value: unknown, existing?: AcpExecutor, newId?
   }
   const permissions = normalizePermissionSet(source.permissions, existing?.permissions ?? ACP_DEFAULT_PERMISSIONS);
   const managed=existing?.catalogId&&command===existing.command&&JSON.stringify(args)===JSON.stringify(existing.args);
-  if(existing?.catalogId&&!managed)throw new Error('清单执行端的程序和启动参数由版本管理维护；请从清单切换版本，或手动添加另一个连接。');
-  return { id: existing?.id ?? newId!, name, command, args, env, permissions, model: text(source.model, 120) || undefined, createdAt: existing?.createdAt ?? new Date().toISOString(),...(managed?{catalogId:existing.catalogId,authentication:existing.authentication}:{}) };
+  if(existing?.catalogId&&!managed)throw new Error('清单执行端的程序和启动参数由版本管理维护；请从清单下载或切换版本。');
+  const adapter=Object.hasOwn(source,'adapter')?source.adapter:existing?.adapter;
+  if(adapter!==undefined&&adapter!==''&&adapter!=='acp'&&adapter!=='antigravity')throw new Error('未知的连接类型。');
+  if(existing&&(existing.adapter??'acp')!==(adapter==='antigravity'?'antigravity':'acp'))throw new Error('连接类型已绑定，请添加新连接以保留旧会话的原执行端。');
+  if(adapter==='antigravity'&&args.length)throw new Error('Antigravity 连接无需启动参数，模型和思考程度在成员选项中设置。');
+  return { id: existing?.id ?? newId!, name, command, args, env, permissions, model: text(source.model, 120) || undefined, createdAt: existing?.createdAt ?? new Date().toISOString(),...(adapter==='antigravity'?{adapter}:{}),...(managed?{catalogId:existing.catalogId,authentication:existing.authentication}:{}) };
 }
 /** Split a command line the way a user types it: spaces separate, double quotes group. */
 export function splitArgs(line: string): string[] {
@@ -64,7 +68,7 @@ export function parseEnv(text: string): Record<string, string> {
 }
 export const DEFAULT_SETTINGS: Settings = {
   networkMode:'tun', proxyUrl:'http://127.0.0.1:7897', npmRegistry:'official',nodeRuntime:'bundled',claudeAuthMode:'subscription',paths:{}, models:{}, efforts:{},
-  deepseekEnabled:true, deepseekBaseUrl:'https://api.deepseek.com', dshProfile:'airoom',
+  deepseekEnabled:true, deepseekBaseUrl:'https://api.deepseek.com', dshProfile:'airoom', dshAuthMode:'account', dshApiProtocol:'openai-completions', dshApiBaseUrl:'',
   maxParallel:3, stopTimeoutMs:10000, defaultWriteMode:true, defaultAutoApprove:true,
   maxRunMinutes:30, deepseekMaxRequests:12,
   // Personal, unattended work: normal-user full access, with task copies, logs and stop controls retained.
