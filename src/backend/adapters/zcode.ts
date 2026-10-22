@@ -116,6 +116,7 @@ export class ZcodeAdapter implements Adapter{
   private async startPrepared(context:AdapterContext,text:string,apiEnv?:NodeJS.ProcessEnv):Promise<AdapterResult>{
     if(this.child&&this.child.exitCode===null&&this.child.signalCode===null)throw new Error('ZCode 已有正在进行的任务。');this.child=undefined;this.stopped=false;
     const base=this.environment(context.env),permissions=context.settings.permissions[this.executor.id]??this.executor.permissions??ACP_DEFAULT_PERMISSIONS;
+    if(context.run.roomAccess&&permissions.fileScope==='workspace')throw new Error('ZCode 当前没有可核对的项目读取范围隔离，不能保证“仅限工作区”。请为该成员选择“文件范围不限制”，或使用支持该限制的执行端；本轮尚未发送模型请求。');
     const command=this.command(base),env=apiEnv??this.modelEnvironment(base,command),custom=zcodeApiMode(this.executor),state=this.state(env,command,this.requestedModel(context));
     if(!state.ready)throw new Error(state.detail);
     // Project meeting rooms keep the read tools; plan mode and the denials below still forbid changes.

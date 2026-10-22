@@ -126,6 +126,7 @@ export type RoomId = 'global' | `project:${string}` | `desk:${string}` | `report
 export interface Project { id: string; name: string; directory: string; createdAt: string; collaborationPaused: boolean; /** Private conversations use hidden execution directories. */ kind?: 'lounge' | 'desk' | 'roundtable'; roomId?: RoomId }
 export interface Project { /** Saved participants of this project's meeting room. */ memberIds?: string[] }
 export interface Project { memberConfigs?: Record<string, import('./executor-config').ConfigSelection>; memberConfigRevision?: number }
+export interface Project { /** Project meeting speech inherits member permissions unless explicitly read-only. */ meetingMode?: import('./room-permissions').MeetingMode }
 export interface Project { /** Optional detailed logs under .airoom/logs; independent from H3 project records. */ writeWorkLogs?:boolean }
 export interface Project { /** Independent default-off H3 record export. */ projectRecordToFolder?:boolean }
 export interface Project { /** Logical ownership does not change the filesystem directory. */ parentId?:string;order?:number;hierarchyRevision?:number;/** Explicit relative write paths; absent means the entire directory. */ writeScopes?:string[] }
@@ -208,7 +209,7 @@ export interface RoomLink { projectId: string; sessionId: string; runId?: string
   reviewStale?: string;
   /** The user's decision in the room: accepted, or sent back with comments. */
   verdict?: 'accepted' | 'returned'; verdictAt?: string }
-export interface RoomMessage { id: string; author: string; authorName?: string; threadId?: string; text: string; at: string; runId?: string;
+export interface RoomMessage { roomAccess?: import('./room-permissions').RoomAccess; id: string; author: string; authorName?: string; threadId?: string; text: string; at: string; runId?: string;
   tokenUsage?: import('./token-usage').TokenUsage;
   /** An immutable version of the saved project facts, displayed without a model call. */
   memberReport?: import('./project-workbench').MemberReport;
@@ -264,6 +265,8 @@ export interface RoomState { active: boolean; mode: 'chat' | 'meeting' | 'discus
   /** The member condensing a topic right now. */
   compressing?: string }
 export interface Session {
+  /** Changes retire native permission state before the next room turn. */
+  roomAccessSignature?: string;
   tokenUsageCheckpoint?: import('./token-usage').TokenUsageCheckpoint;
   executorIdentity?: import('./compatibility').ExecutorIdentity;
   id: string; projectId: string; provider: ProviderId; title: string; nativeId?: string; nativeHome?: 'shared' | 'airoom';
@@ -299,6 +302,7 @@ export interface Session {
   effort?: string;
 }
 export interface Run {
+  roomAccess?: import('./room-permissions').RoomAccess;
   compatibilityReportId?: string;
   tokenUsage?: import('./token-usage').TokenUsage;
   executorIdentity?: import('./compatibility').ExecutorIdentity;
@@ -394,7 +398,7 @@ export interface AdapterContext {
   run: Run; session: Session; settings: Settings; cwd: string; env: NodeJS.ProcessEnv;
   /** Positively identified chat surfaces. Flow tasks keep their complete task briefing. */
   conversation?: 'desk' | 'room';
-  /** A project meeting room's bound project directory: room speech may read it, never change it. */
+  /** Bound project directory; the admitted roomAccess determines whether it is writable. */
   roomProjectDirectory?: string;
   /** Only the conversation runtime pool grants this lease; flow tasks close their process. */
   roomRuntime?: boolean;

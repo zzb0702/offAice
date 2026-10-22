@@ -3,6 +3,7 @@ import { executeRun, type RunExecutionActive } from './run-execution';
 import {logoutProvider} from './provider-logout';
 import { discussionCallLimits } from "../shared/discussion-budget";
 import { memberPermissions, normalizeMemberPermissions } from "../shared/permissions";
+import { meetingMode, meetingSpeech, resolveRoomAccess, roomAccessInstruction } from '../shared/room-permissions';
 import { EngineBackups } from "./engine-backups";
 import { LegacyCollaborations } from "./engine-collaborations";
 import { ComposerDrafts } from "./composer-drafts";
@@ -793,6 +794,10 @@ export class Engine {
         return data.overview.stage?.leadMemberId ?? data.flow?.leadMemberId;
       },
       projectFiles: () => this.projectRoomDirectory(roomId),
+      projectAccess: (memberId) => {
+        const member = this.store.members().find(item => item.id === memberId);
+        return member ? this.projectMeetingAccess(roomId, member) : undefined;
+      },
       interruptAndWait: () =>
         this.rooms.run(roomId, async () => {
           const running = this.roomRunning;
@@ -3734,9 +3739,15 @@ export class Engine {
           params.memberIds === undefined &&
           params.writeWorkLogs === undefined &&
           params.memberConfigs === undefined &&
+          params.meetingMode === undefined &&
           params.projectRecordToFolder === undefined
         )
           throw new Error("请提供项目名称、参会成员名单或项目设置");
+        if (params.meetingMode !== undefined) {
+          if (project.kind || !['collaborate', 'read-only'].includes(params.meetingMode))
+            throw new Error('请选择项目会议室的“只读讨论”或“协作工作”模式');
+          next.meetingMode = params.meetingMode;
+        }
         if (params.writeWorkLogs !== undefined) {
           if (typeof params.writeWorkLogs !== "boolean")
             throw new Error("日志设置必须是开或关");
@@ -4838,52 +4849,35 @@ export class Engine {
       );
     });
   }
-  /** Speech and hand votes have separate read-only native contexts for each member. */
+  /** A mode change takes effect on admission; old native contexts remain readable history. */
   private async loungeSession(
     member: MemberProfile,
     purpose?: "room-hand" | "room-image" | "room-minutes" | "room-mention",
   ) {
     const project = await this.ensureLounge();
     const threadId = this.roomStore.currentRoomThread().id;
-    const existing = this.roomSessions().find(
-      (session) =>
-        (session.roomThreadId ?? threadId) === threadId &&
-        session.purpose === purpose &&
-        session.provider === member.executor &&
-        (session.memberId ?? session.provider) === member.id,
-    );
-    if (existing) {
-      if (purpose && existing.nativeId) {
-        const fresh = {
-          ...existing,
-          nativeId: undefined,
-          nativeHome: undefined,
-        };
-        this.store.put("sessions", existing.id, fresh);
-        return fresh;
-      }
-      const session = {
-        ...existing,
-        roomId: this.roomId,
-        roomThreadId: threadId,
-      };
-      this.store.put("sessions", session.id, session);
-      return session;
+    let existing = this.roomSessions().find(session =>
+      (session.roomThreadId ?? threadId) === threadId && session.purpose === purpose
+      && session.provider === member.executor && (session.memberId ?? session.provider) === member.id);
+    const seed = existing ?? { projectId: project.id, provider: member.executor, memberId: member.id, purpose } as Session;
+    const access = this.roomAccessFor(seed);
+    const signature = access ? JSON.stringify({access, autoApprove: this.settings.defaultAutoApprove}) : undefined;
+    if (existing && signature !== existing.roomAccessSignature) {
+      await this.roomRuntimes.invalidate(key => key === existing!.id);
+      this.store.put('sessions', existing.id, {...existing, roomRetiredAt: now()});
+      existing = undefined;
     }
-    const created = await this.createSession(
-      project.id,
-      member.executor,
-      `${purpose === "room-mention" ? "点名回复" : purpose === "room-image" ? "绘图" : purpose === "room-minutes" ? "会议纪要" : purpose ? "举手" : "聊天室"} · ${member.name}`,
-      false,
-      member.id,
-    );
-    const session = {
-      ...created,
-      purpose,
-      roomId: this.roomId,
-      roomThreadId: threadId,
+    const base = existing ?? this.createSession(project.id, member.executor,
+      `${purpose === 'room-mention' ? '点名回复' : purpose === 'room-image' ? '绘图' : purpose === 'room-minutes' ? '会议纪要' : purpose ? '举手' : '聊天室'} · ${member.name}`,
+      access?.writeMode ?? false, member.id);
+    const session: Session = {
+      ...base, purpose, roomId: this.roomId, roomThreadId: threadId, roomAccessSignature: signature,
+      writeMode: access?.writeMode ?? false,
+      autoApprove: access?.autoApprove ?? false,
+      ...(access ? {workspace: access.directory, workspaceKind: 'original' as const} : {}),
+      ...(purpose && existing?.nativeId ? {nativeId: undefined, nativeHome: undefined} : {}),
     };
-    this.store.put("sessions", session.id, session);
+    this.store.put('sessions', session.id, session);
     return session;
   }
   private roomMessage(message: RoomMessage) {
@@ -6388,6 +6382,8 @@ export class Engine {
       run.writeBoundary = captureProjectBoundary(this.store, session.projectId);
     }
     if (flowOperationId) run.flowOperationId = flowOperationId;
+    const roomAccess = this.roomAccessFor(session);
+    if (roomAccess && !flowOperationId && !imageGeneration) run.roomAccess = roomAccess;
     this.store.transaction(() => {
       this.store.put("runs", run.id, run);
       this.store.put("outbox", run.id, {
@@ -6503,6 +6499,18 @@ export class Engine {
       return;
     }
   }
+  private projectMeetingAccess(roomId: string | undefined, member: MemberProfile) {
+    const directory = this.projectRoomDirectory(roomId);
+    if (!directory || !roomId?.startsWith('project:')) return;
+    const bound = this.require<Project>('projects', roomId.slice(8));
+    const permissions = memberPermissions(this.settings, member, isAcpId(member.executor) ? this.store.get<AcpExecutor>('executors', member.executor) : undefined);
+    return resolveRoomAccess(meetingMode(bound), directory, permissions, this.settings.defaultAutoApprove);
+  }
+  private roomAccessFor(session: Session) {
+    const project = this.store.get<Project>('projects', session.projectId);
+    if (project?.kind !== 'lounge' || !meetingSpeech(session.purpose)) return;
+    return this.projectMeetingAccess(project.roomId, this.memberFor(session));
+  }
   private context(run: Run, session: Session): AdapterContext {
     const project = this.require<Project>("projects", session.projectId);
     // Model and thinking level: the session's choice, else the member card's, else the executor default.
@@ -6524,8 +6532,13 @@ export class Engine {
         ...runSettings.permissions,
         [run.provider]: memberPermissions(this.settings, member, isAcpId(run.provider) ? this.store.get<AcpExecutor>("executors", run.provider) : undefined),
       };
-    // The chat room is conversation only: no commands and no file changes, whatever the member's defaults.
-    if (project.kind === "lounge" && run.provider !== "deepseek")
+    const access = run.roomAccess;
+    if (access) {
+      session = {...session, writeMode: access.writeMode, autoApprove: access.autoApprove, workspace: access.directory, workspaceKind: 'original'};
+      if (run.provider !== 'deepseek') runSettings.permissions = {...runSettings.permissions, [run.provider]: {...access.permissions}};
+    }
+    // Tea-room speech and auxiliary ballots/minutes retain their original read-only boundary.
+    if (project.kind === "lounge" && !access && run.provider !== "deepseek")
       runSettings.permissions = {
         ...runSettings.permissions,
         [run.provider]: {
@@ -6539,7 +6552,7 @@ export class Engine {
       run,
       session,
       conversation: project.kind === 'lounge' ? 'room' : !session.purpose && !session.flowId && !run.flowOperationId && this.store.get('desk_session_links',session.id) ? 'desk' : undefined,
-      roomProjectDirectory: project.kind === "lounge" ? this.projectRoomDirectory(project.roomId) : undefined,
+      roomProjectDirectory: project.kind === "lounge" ? access?.directory ?? this.projectRoomDirectory(project.roomId) : undefined,
       settings: runSettings,
       persona: personaInstructions(
         member,
@@ -6706,8 +6719,9 @@ export class Engine {
           this.active.get(run.id)?.replyExpired
         )
           throw new Error("这轮聊天室回复已结束或隔离，不能重新发送。");
-        const text = fresh(canRemember, refreshRules),
+        const input = fresh(canRemember, refreshRules),
           attachments = this.roomContextAttachments.get(session.id)?.();
+        const text = [run.roomAccess ? roomAccessInstruction(run.roomAccess) : '', input].filter(Boolean).join('\n\n');
         ctx.run.input = text;
         if (attachments) {
           ctx.run.attachments = attachments;

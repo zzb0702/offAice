@@ -208,7 +208,7 @@ export function ProjectRoom({ snapshot, project, invoke, onOpenSession,onRoundta
       <span className="project-room-icon"><FolderOpen size={19} /></span>
       <div className="project-room-title"><h1>{project.name}<small>项目会议室</small></h1>{flow&&live&&data?.overview.stage?<p className="project-stage" aria-label="当前阶段" title={`项目原目录：${project.directory}
 任务在独立副本中执行，验收后写回。`}>{currentRound && flow.status === 'active' && <strong>第 {currentRound.index + 1} 轮「{currentRound.title}」 · </strong>}{data.overview.stage.label} · 本轮负责人 <MemberName id={data.overview.stage.leadMemberId??flow.leadMemberId}/> · {REVIEW_LEVEL_LABELS[reviewLevel(flow)]}</p>:<p title={`项目原目录：${project.directory}
-讨论只读；任务在独立副本中执行，验收后写回。`}>项目原目录：{project.directory}<span className="project-room-note"> · 任务在独立副本中执行，验收后写回</span></p>}</div>
+会议权限由聊天区模式决定；项目任务在独立副本中执行，验收后写回。`}>项目原目录：{project.directory}<span className="project-room-note"> · 任务在独立副本中执行，验收后写回</span></p>}</div>
       {fresh&&flow&&<label className="project-record-setting"><input type="checkbox" checked={includePreviousRecord} onChange={e=>setIncludePreviousRecord(e.target.checked)}/>起草时参考上一段记录</label>}
       {flow && live && <div className="project-room-numbers" aria-label="本段工作进度">
         <span><strong>{data!.overview.working}</strong>在做</span><span><strong>{data!.overview.remaining}</strong>待完成</span>

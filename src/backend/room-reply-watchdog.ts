@@ -1,9 +1,9 @@
 /** Silence, rather than total generation time, bounds conversation-only turns. */
-export const ROOM_REPLY_IDLE_MS = 90_000;
+export const ROOM_REPLY_IDLE_MS = 5 * 60_000;
 
 export class RoomReplyTimeoutError extends Error {
   constructor() {
-    super("成员连续 90 秒没有新输出，本轮已跳过；后续轮次暂不再调用这位成员。");
+    super("成员连续 5 分钟没有新输出，本轮已跳过；恢复方式请查看讨论状态，结果未知时需先核对。");
     this.name = "RoomReplyTimeoutError";
   }
 }

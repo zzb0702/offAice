@@ -22,7 +22,7 @@ export function PermissionSettings({ snapshot, settings, setSettings }: { snapsh
   });
   return <>
     <div className="settings-section-heading"><h3>成员权限</h3></div>
-    <p className="settings-description">人物默认继承执行端权限，也可以逐项单独覆盖。修改从下一轮任务开始生效；只读会话保持只读。</p>
+    <p className="settings-description">人物默认继承执行端权限，也可以逐项单独覆盖。项目会议室的“协作工作”继承这些设置；“只读讨论”禁止修改和命令。修改从下一轮生效，会议室可查看本轮实际权限。</p>
     <label className="toggle-row"><span><strong>新工作会话自动批准操作</strong><small>自动处理操作审批并记录；用户问题仍按会话规则处理。</small></span><input type="checkbox" checked={settings.defaultAutoApprove} onChange={event => setSettings(previous => ({ ...previous, defaultAutoApprove: event.target.checked }))} /></label>
     <button className="button small secondary settings-inline-action" onClick={() => setSettings(previous => automaticWorkSettings(previous))}>使用自动工作设置</button>
     <div className="settings-section-heading"><h3>执行端默认权限</h3></div>

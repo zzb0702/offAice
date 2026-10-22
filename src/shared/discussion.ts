@@ -21,8 +21,10 @@ export interface RoomDiscussion {
   seen: Record<string, number>; lastSpoke: Record<string, number>; priority: string[]; handoff?: string;
   passed?: string[]; relevant?: string[];
   meetingRound?:{messageId:string;pending:string[];mentionedOnly:boolean;handSelection?:boolean;waitAfterRound?:boolean;supplemented?:string[]};meetingCursor?:string;stoppedMembers?:string[];
-  /** Isolate unsuccessful members across rounds. Only an explicit resume retries them. */
+  /** Skip the current human round; uncertain, limited or repeatedly failing members need explicit resume. */
   skippedMembers?:Record<string,{reason:string;runId?:string;unknown?:boolean;limited?:boolean}>;
+  /** Retained when a new human message releases a temporary skip; a valid reply resets the streak. */
+  memberFailures?:Record<string,number>;
   callUsage?:import('./call-usage').CallUsage;
   calls: number; limit: number; allowance: number; minutes: number; deadline: number;
   /** Auxiliary requests remain in calls; new settings limit only formal speech per human round. */
@@ -42,6 +44,25 @@ export interface RoomDiscussion {
   /** A separate, read-only call after unanimous meeting closure. Never used by casual chat. */
   meetingMinutes?: { proposalId: string; memberId: string; status: 'pending' | 'running' | 'done' | 'failed' | 'stopped' | 'stale'; messageId?: string; runId?: string; error?: string; source?:'user'; interruptedSpeech?:boolean };
   endedBy?: 'user' | 'members'; endedAt?: string;
+}
+export const DISCUSSION_FAILURE_LIMIT = 3;
+export function discussionMemberRecovery(d:RoomDiscussion,id:string) {
+  const failed=d.skippedMembers?.[id];
+  if(!failed)return;
+  const unknown=[...(d.unknownRunIds??[]),...(d.unknownRunId?[d.unknownRunId]:[])].filter(run=>!d.acknowledgedRunIds?.includes(run));
+  if(failed.unknown||unknown.some(run=>!failed.runId||run===failed.runId))return 'unknown';
+  if(failed.limited)return 'limited';
+  if((d.memberFailures?.[id]??1)>=DISCUSSION_FAILURE_LIMIT)return 'repeated';
+  return 'next-message';
+}
+export function discussionRecoveryHint(d:RoomDiscussion,id:string) {
+  switch(discussionMemberRecovery(d,id)) {
+    case 'next-message':return '本轮先跳过，你下一次发消息时自动重新参与；不会自动重发上一份请求。';
+    case 'unknown':return '上次请求结果未知，请先核对是否已经完成，再手动重新加入。';
+    case 'limited':return '额度或频率受限，恢复后可手动重新加入。';
+    case 'repeated':return `已连续 ${d.memberFailures?.[id]??DISCUSSION_FAILURE_LIMIT} 次失败，暂停自动恢复；排查后可手动重新加入。`;
+    default:return '';
+  }
 }
 export function hasMeetingRemarks(d:RoomDiscussion|undefined,messages:RoomMessage[]){return Boolean(d&&d.style!=='chat'&&d.phase!=='idle'&&messages.some(m=>m.discussionId===d.id&&d.members.includes(m.author)&&m.status==='done'&&m.text.trim()&&!m.system&&!m.discussionControl&&!m.discussionStale));}
 export interface DiscussionReply {

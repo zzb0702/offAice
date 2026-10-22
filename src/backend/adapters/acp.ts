@@ -8,7 +8,7 @@ import type { ChildProcess } from 'node:child_process';
 import type { AcpExecutor, Adapter, AdapterContext, AdapterResult, MemberPermissions, ProviderInfo, Settings } from '../../shared/types';
 import { ACP_DEFAULT_PERMISSIONS } from '../../shared/defaults';
 import { spawnOwned, stopOwned } from '../process-supervisor';
-import { redact } from '../security';
+import { redact, resolveSafePath } from '../security';
 import { prepareCliLaunch } from './common';
 import { NativeResponseError, failureKind } from '../adapter-failure';
 import { acpConfigReport, acpModelOptions, configureAcp, selectConfig } from './acp-config';
@@ -64,6 +64,22 @@ export function acpDenial(kind: string | undefined, permissions: MemberPermissio
   if (!writeMode && !reads.includes(kind ?? '')) return '这个会话是只读的，不允许修改文件或执行命令';
   if (kind === 'execute' && permissions.commands === 'deny') return '这位成员的“执行命令”设置为禁止';
   if (kind === 'fetch' && !permissions.network) return '这位成员的联网设置为禁止';
+}
+
+/** Auto-approve only positively identified read requests in the admitted room scope. */
+export function acpRoomReadAllowed(kind: string | undefined, input: unknown, context: AdapterContext): boolean {
+  if (!context.run.roomAccess || !['read','search','think','fetch'].includes(kind ?? '')) return false;
+  const permissions=context.settings.permissions[context.run.provider as keyof Settings['permissions']];
+  if (kind==='fetch') return permissions?.network===true;
+  if (kind==='think') return true;
+  if (permissions?.fileScope==='any') return true;
+  if (!input || typeof input!=='object' || Array.isArray(input)) return false;
+  const value=input as Record<string,unknown>;
+  const targets=[value.file_path,value.filePath,value.path,value.directory,value.root,
+    ...(Array.isArray(value.paths)?value.paths:[])].filter(v=>v!==undefined);
+  if(!targets.length&&kind==='search'&&typeof value.pattern==='string')targets.push(value.pattern);
+  if(!targets.length||targets.some(v=>typeof v!=='string'||!v.trim()))return false;
+  try {for(const target of targets){const raw=target as string;resolveSafePath(context.cwd,path.isAbsolute(raw)?path.relative(context.cwd,raw):raw);}return true;}catch{return false;}
 }
 
 /** A program the user connected over the Agent Client Protocol (stdio JSON-RPC, protocol version 1). */
@@ -153,6 +169,7 @@ export class AcpAdapter implements Adapter {
       const permissions = context.settings.permissions[this.executor.id] ?? this.executor.permissions ?? ACP_DEFAULT_PERMISSIONS;
       const reason = acpDenial(kind, permissions, context.session.writeMode);
       if (reason) { context.emit('warning', `${this.name} 的操作已拒绝：${reason}（${title}）`, { kind, title }, 'derived'); reply(reject?.optionId); return; }
+      if (allow && acpRoomReadAllowed(kind,input,context)) { context.emit('status',`已按本轮会议权限允许读取：${title}`,{kind,title},'derived');reply(allow.optionId);return; }
       if (permissions.commands === 'auto' && allow) { context.emit('status', `已按设置自动允许：${title}`, { kind, title, optionId: allow.optionId, optionKind: allow.kind }, 'derived'); reply(allow.optionId); return; }
       const answer = await context.approve({
         type: 'approval', title: `${this.name} 请求：${title}`, detail: [kind ? `类型：${kind}` : '', input === undefined ? '' : JSON.stringify(input, null, 2)].filter(Boolean).join('\n'),

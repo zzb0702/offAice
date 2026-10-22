@@ -3,6 +3,8 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { ArrowDown, BookmarkPlus, Columns2, Copy, Download, MoreHorizontal, Reply, Unlink, Eraser, FileStack, Layers, LoaderCircle, MessageSquarePlus, MessagesSquare, Send, SmilePlus, Sparkles, StopCircle, Trash2 } from 'lucide-react';
 import type { Attachment, RoomHistory, RoomId, RoomMessage, RoomThread, Snapshot } from '../shared/types';
 import { MessageTokenUsage } from './token-usage';
+import {MeetingAccess} from './meeting-access';
+import {meetingMode, roomAccessText} from '../shared/room-permissions';
 import type { PersonalRoomData } from '../shared/member-workspaces';
 import { DEFAULT_ROOM_THREAD, ROOM_REACTIONS, isRoomPass, roomMarkerPending, roomMentions, roomReaction } from '../shared/room';
 import { RoomPresence } from './discussion-status';
@@ -101,6 +103,7 @@ export interface PersonalRoomChat {
 
 export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, split, focus, roomId = 'global', project, personal,surface }: { snapshot: Snapshot; invoke: Invoke; onOpenSession?: (projectId: string, sessionId: string) => void; split?: { active: boolean; toggle: () => void }; focus?: RoomFocus; roomId?: RoomId; project?: ProjectRoomChat; personal?:PersonalRoomChat;surface?:RoomSurface }) {
   const global = roomId === 'global';
+  const meetingProject = project && roomId.startsWith('project:') ? snapshot.projects.find(p=>p.id===roomId.slice(8)) : undefined;
   // Every room call names its room; the tea room keeps the old unscoped form.
   const invoke = useCallback(<T,>(method: string, params?: unknown, success?: string) => rawInvoke<T>(method, global || !method.startsWith('room.') ? params : { ...(params as Record<string, unknown> | undefined), roomId }, success), [rawInvoke, global, roomId]) as Invoke;
   // The snapshot carries the tea room; another room is read on its own and re-read when its revision moves.
@@ -384,7 +387,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, split, fo
     {!project && !personal && <RoomBackdrop />}
     <div className="room-top">
     {project ? surface?.recordActions ? null : <div className="room-tool-row">
-      <span className="room-tool-title">{surface?.title??'会议聊天'}<small>{surface?.hint??'成员可查看项目文件，但不改文件；正在工作的成员只回答 @ 点名'}</small></span>
+      <span className="room-tool-title">{surface?.title??'会议聊天'}<small>{surface?.hint??(meetingProject&&meetingMode(meetingProject)==='collaborate'?'按成员权限协作；正在工作的成员只回答 @ 点名':'只读讨论；正在工作的成员只回答 @ 点名')}</small></span>
       <button type="button" className="icon-button topic-more" aria-label="会议记录操作" aria-haspopup="menu" title="压缩、导出和清空会议记录" onClick={event => { const rect = event.currentTarget.getBoundingClientRect(); setMenu({ x: rect.left, y: rect.bottom + 6, items: recordItems }); }}><MoreHorizontal size={16} /></button>
     </div> : <>
     <header className="room-head">
@@ -411,6 +414,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, split, fo
       {thread && (thread.summary || thread.inherited) && <div className="topic-bar-summary"><SummaryNote thread={thread} /><span className="topic-bar-links">{thread.summary?.proposals?.length ? <button type="button" className="link-button topic-memory" onClick={() => setProposing(true)}><BookmarkPlus size={12} />有 {thread.summary.proposals.length} 条可以记住的事</button> : null}{thread.inherited && !archived && <button type="button" className="link-button topic-uninherit" disabled={busy || state.active || Boolean(compressing) || !snapshot.backendReady} title="当前话题不再带着之前话题的摘要" onClick={() => void uninherit()}><Unlink size={12} />不再延续</button>}{global&&thread.summary && <button type="button" className="link-button topic-handoff" onClick={() => setHandoff({ threadId: thread.id, text: `请根据团队聊天室话题「${thread.title}」的讨论摘要完成任务。\n\n${thread.summary!.text}` })}><Briefcase size={12} />把摘要交给项目</button>}</span></div>}
     </div>}</>}
     {project && thread?.summary && <div className="room-topic-bar"><div className="topic-bar-summary"><SummaryNote thread={thread} /></div></div>}
+    {meetingProject && !archived && !surface?.readOnly && <MeetingAccess project={meetingProject} snapshot={snapshot} members={invited} invoke={invoke} />}
     {!archived && !personal && !surface?.readOnly && <RoomPresence discussion={discussion} state={state} invited={invited} ready={member => ready(member.executor)}
       locked={state.active || Boolean(discussion && discussion.phase !== 'idle')} busy={busy || Boolean(compressing) || !snapshot.backendReady} onToggle={toggle}
       showNextStep={!surface} flowNextStep={Boolean(project?.flowNextStep)} onConfigure={project?.onConfigureMember}
@@ -455,6 +459,7 @@ export function RoomView({ snapshot, invoke: rawInvoke, onOpenSession, split, fo
           <div className="room-bubble-wrap"><span className="room-meta"><strong>{name(message)}</strong><time title={run ? effectiveConfigText(run.requestedConfig, run.effectiveConfig) : undefined}>{time(message.at)}</time>{personal && actual && <span className="room-model" title="这一轮实际使用的模型与思考程度">{actual}</span>}{message.inReplyTo && <span className="room-reply-to">回复 {messages.find(m => m.id === message.inReplyTo)?.authorName ?? '较早的消息'}</span>}{message.kind === 'summary' && <em>会议总结</em>}{message.status === 'failed' && <em className="room-failed">{unknown ? '结果待核对' : run?.delivery==='prepared' ? '未发送' : '回复失败'}</em>}{message.status === 'stopped' && <em>已停止</em>}</span>
             <div className={`room-bubble ${message.status === 'speaking' && !text ? 'typing' : ''} ${folded ? 'folded' : ''}`} onContextMenu={message.status === 'speaking' ? undefined : event => openMessageMenu(event, messageMenu(message, canReply))}>{text ? <Markdown text={text} /> : message.status === 'speaking' ? <span className="typing-dots"><i /><i /><i /></span> : <span className="room-silent">{silent}</span>}</div>
             {message.runId && <MessageTokenUsage usage={run?.tokenUsage ?? message.tokenUsage} run={run} speaking={message.status === 'speaking'} />}
+            {(run?.roomAccess ?? message.roomAccess) && <small className="room-access-receipt" title={`本轮工作目录：${(run?.roomAccess ?? message.roomAccess)!.directory}`}>本轮权限：{roomAccessText((run?.roomAccess ?? message.roomAccess)!)}</small>}
             {long && <button type="button" className="link-button room-fold-button" aria-expanded={!folded} onClick={() => setExpanded(previous => { const next = new Set(previous); if (next.has(message.id)) next.delete(message.id); else next.add(message.id); return next; })}>{folded ? '展开全文' : '收起'}</button>}
             {message.imageGeneration&&message.status==='speaking'&&!message.generatedImages?.length&&<small className="room-reply-note">正在生成图片，可以随时停止。</small>}
             <GeneratedImages images={message.generatedImages} invoke={invoke} onEdit={!archived&&!state.active&&canGenerateImage?image=>setImageDialog({text:draft,draftVersion:composer.version,attachments:[image]}):undefined}/>

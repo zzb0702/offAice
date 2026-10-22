@@ -1,0 +1,10 @@
+.meeting-access{padding:10px 14px;border-bottom:1px solid var(--line);font-size:var(--fs-sm);flex:none}
+.meeting-access label{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-weight:600}
+.meeting-access select{font:inherit;min-width:210px;padding:6px 9px;background:var(--surface);color:inherit;border:1px solid var(--line);border-radius:var(--r-sm)}
+.meeting-access p{margin:7px 0 0;line-height:1.5;color:var(--ink-3);overflow-wrap:anywhere}
+.meeting-access details{margin-top:7px}.meeting-access summary{cursor:pointer;color:var(--ink-3)}
+.meeting-access ul{list-style:none;padding:0;margin:8px 0 0;display:grid;gap:7px}
+.meeting-access li{display:flex;gap:6px 12px;flex-wrap:wrap;line-height:1.5}.meeting-access li strong{min-width:52px}
+.meeting-access li small{width:100%;color:var(--ink-3)}
+.room-access-receipt{display:block;font-size:var(--fs-xs);color:var(--ink-3);margin-top:5px;line-height:1.4;overflow-wrap:anywhere}
+@media(max-width:860px){.meeting-access select{min-width:0;max-width:100%}}

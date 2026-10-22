@@ -10,7 +10,7 @@
     "build": "node scripts/build.mjs",
     "start": "node scripts/launch.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/build-job.mjs && node --import tsx --test tests/*.test.ts",
+    "test": "node scripts/build-job.mjs && node --import tsx --test --test-concurrency=2 tests/*.test.ts",
     "verify": "node scripts/verify.mjs",
     "package": "npm run build && electron-builder --win nsis portable --config electron-builder.json",
     "package:green": "node scripts/build.mjs && electron-builder --win --dir --config electron-builder.json && node scripts/package-green.mjs",

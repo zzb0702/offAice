@@ -243,6 +243,8 @@
 .room-embedded .room-presence-status { margin-left: 0; }
 .room-embedded .room-presence-detail { padding-left: 0; max-height: 48px; }
 @media (max-width: 1180px) { .project-room-grid { grid-template-columns: minmax(0, 1fr) 270px; } .room-embedded .composer-hint { display: none; } }
+/* Keep the narrow room readable after the later desktop column override. */
+@media (max-width: 860px) { .project-room-grid, .project-room-grid.board-collapsed { grid-template-columns: minmax(0, 1fr); } .project-room-grid > .room-embedded { min-height: 640px; } }
 
 /* What waits for the owner sits just above the composer, in the flow: the chat shrinks to make room instead of
    being covered, and stays pinned to its latest message. One line folded, cards open. */

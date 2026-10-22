@@ -14,6 +14,7 @@ import { stopOwned } from './process-supervisor';
 import { RoomRuntimePool, runtimeFingerprint, type RuntimeLease } from './runtime-pool';
 import { RuntimeMetrics } from './runtime-metrics';
 import { RoomReplyWatchdog, boundedRoomCleanup } from './room-reply-watchdog';
+import { roomAccessInstruction, roomAccessText } from '../shared/room-permissions';
 import { acknowledgedNativeContext, nativeContextNeedsRefresh } from './native-context';
 
 const now = () => new Date().toISOString();
@@ -223,7 +224,7 @@ export async function executeRun(host: RunExecutionHost, active: RunExecutionAct
     host.emit(
       ctx,
       "status",
-      ctx.session.writeMode
+      ctx.run.roomAccess ? `${roomAccessText(ctx.run.roomAccess)}；工作目录：${ctx.cwd}。修改从本轮生效。` : ctx.session.writeMode
         ? ctx.session.workspaceKind === "original"
           ? "在本话题的工作文件夹直接工作；不需要写回副本"
           : "从独立任务副本开始执行；修改记录用于核对与回退"
@@ -286,7 +287,8 @@ export async function executeRun(host: RunExecutionHost, active: RunExecutionAct
     const refreshContext = nativeContextNeedsRefresh(ctx.session, ctx.run.input.length)
       || ctx.session.nativePersona?.nativeId !== ctx.session.nativeId || ctx.session.nativePersona?.hash !== personaHash;
     if (refreshContext && ctx.session.nativeId) ctx.refreshInput?.();
-    const nativeInput = project.kind === 'lounge' ? ctx.run.input : prompt;
+    const nativeInput = project.kind === 'lounge'
+      ? [ctx.run.roomAccess && !ctx.run.input.startsWith('[AIROOM 本轮实际权限]') ? roomAccessInstruction(ctx.run.roomAccess) : '', ctx.run.input].filter(Boolean).join('\n\n') : prompt;
     const start = () => active.adapter.start(ctx, nativeInput);
     if (
       project.kind === "lounge" &&

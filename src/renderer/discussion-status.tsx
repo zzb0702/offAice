@@ -1,6 +1,6 @@
 import { Check, Hand, Users, X } from 'lucide-react';
 import type { RoomDiscussion } from '../shared/discussion';
-import { DISCUSSION_LABELS, pendingDiscussionQuestion } from '../shared/discussion';
+import { DISCUSSION_LABELS, discussionMemberRecovery, discussionRecoveryHint, pendingDiscussionQuestion } from '../shared/discussion';
 import type { RoomState } from '../shared/types';
 import { Avatar, useTeam, type TeamMember } from './members';
 import { useTicker } from './ui';
@@ -36,6 +36,7 @@ export function RoomPresence({ discussion: d, state, invited, ready, locked, bus
     ...(d.phase !== 'idle' && d.reason ? [d.reason] : []),
     ...(d.phase === 'closing' ? ['正在确认每位成员是否还有遗漏或异议。'] : []),
     ...(handActive && d.handRound?.status === 'done' ? [d.handRound.fallback ? '没有人需要补充，等你说话' : `本轮补充：${name(d.handRound.selected ?? '')}`] : []),
+    ...Object.keys(d.skippedMembers??{}).map(id=>`${name(id)}：${discussionRecoveryHint(d,id)}`),
   ] : [];
   const questions = d ? d.questions.filter(question => pendingDiscussionQuestion(question) && question.to === 'user').slice(d.style==='chat'?-3:0) : [];
   const nextStep=!showNextStep?undefined:d?.style!=='chat'&&questions.length?'下一步：在输入框回答上方问题。':d?.phase==='awaiting-host'?'下一步：点名一位已举手的成员继续发言。':d?.style!=='chat'&&d?.phase==='waiting_user'&&!flowNextStep?'下一步：整理会议纪要，核对本轮结论。':undefined;
@@ -51,7 +52,7 @@ export function RoomPresence({ discussion: d, state, invited, ready, locked, bus
         const raised = ballot?.status === 'done' && (ballot.want ?? 0) > 0;
         const skipped=on?d?.skippedMembers?.[member.id]:undefined;
         const awaiting=d?.phase==='awaiting-host',pick=(awaiting||d?.phase==='raising'&&d.hostPick&&d.handRound?.status==='collecting')&&raised&&!skipped&&Boolean(onHost);
-        const tag = skipped ? '已跳过' : speaking ? '发言中' : ballot?.status === 'done' ? (ballot.want ? `举手 ${ballot.want}/3` : '不补充') : ballot ? BALLOT[ballot.status] : undefined;
+        const tag = skipped ? discussionMemberRecovery(d!,member.id)==='next-message'?'本轮跳过':'待重新加入' : speaking ? '发言中' : ballot?.status === 'done' ? (ballot.want ? `举手 ${ballot.want}/3` : '不补充') : ballot ? BALLOT[ballot.status] : undefined;
         const title = skipped?.reason || ballot?.why || ballot?.error || (!ok ? `${member.product} 还没准备好` : locked ? on ? '正在参与本次讨论' : '讨论进行中，结束后可以邀请' : on ? '点一下请 TA 离开' : '点一下邀请 TA');
         return <span key={member.id} className="guest-chip-group"><button type="button" className={`guest-chip member-${member.id} ${on ? 'on' : ''} ${locked ? 'locked' : ''} ${speaking ? 'speaking' : ''} ${ok ? '' : 'unready'}`}
           aria-pressed={on} aria-label={pick?'请 '+member.name+' 发言':undefined} disabled={pick?!ok||busy:awaiting?true:onConfigure&&on?busy:!ok||locked||busy} title={pick?ballot?.why:onConfigure&&on?'调整 '+member.name+' 的项目配置':title} onClick={() => pick?onHost!(member.id):onConfigure&&on?onConfigure(member.id):onToggle(member.id)}>

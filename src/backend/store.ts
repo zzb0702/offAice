@@ -123,7 +123,10 @@ export class Store {
       // Completion/reaction handlers may hold an earlier copy of the message. Preserve its exact run's receipt.
       const previous=this.get<RoomMessage>(entity,id);
       const inherited=!previous||previous.runId===message.runId?message.tokenUsage??previous?.tokenUsage:undefined;
-      value={...message,tokenUsage:message.runId?this.get<Run>('runs',message.runId)?.tokenUsage??inherited:undefined};
+      const inheritedAccess=!previous||previous.runId===message.runId?message.roomAccess??previous?.roomAccess:undefined;
+      const receipt=message.runId?this.get<Run>('runs',message.runId):undefined;
+      value={...message,tokenUsage:message.runId?receipt?.tokenUsage??inherited:undefined,
+        roomAccess:message.runId?receipt?.roomAccess??inheritedAccess:undefined};
       if(message.author==='user'&&(message.roomId??'global')==='global'&&!message.system&&!message.contextOnly&&!message.discussionControl)this.nameRoomThread(message.threadId??DEFAULT_ROOM_THREAD,message.text);
     }
     this.sql('INSERT INTO entities(entity,id,value) VALUES(?,?,?) ON CONFLICT(entity,id) DO UPDATE SET value=excluded.value').run(entity,id,JSON.stringify(redact(value)));

@@ -12,7 +12,8 @@ const ui = readdirSync(new URL('../tests/ui/', import.meta.url)).filter(name => 
 const stages = [
   ['类型检查', ['node_modules/typescript/bin/tsc', '--noEmit']],
   ['进程管理组件', ['scripts/build-job.mjs']],
-  ['单元与集成测试', ['--import', './scripts/test-bootstrap.mjs', '--import', 'tsx', '--test', ...unit]],
+  // Native CLI tests spawn process trees; CPU-count parallelism can exhaust their startup deadlines.
+  ['单元与集成测试', ['--import', './scripts/test-bootstrap.mjs', '--import', 'tsx', '--test', '--test-concurrency=2', ...unit]],
   ...ui.map(file => [file, ['--import', './scripts/test-bootstrap.mjs', '--import', 'tsx', file]]),
   ['构建桌面程序', ['scripts/build.mjs']],
   ['桌面冒烟（独立未登录账号）', ['--import', 'tsx', 'scripts/desktop-smoke.mjs']],

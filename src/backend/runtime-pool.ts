@@ -25,7 +25,7 @@ export function runtimeFingerprint(ctx: AdapterContext, files: string[] = [], ex
   const configFiles = id==='codex'&&ctx.env.AIROOM_CODEX_HOME?[path.join(ctx.env.AIROOM_CODEX_HOME,'config.toml'),path.join(ctx.env.AIROOM_CODEX_HOME,'AGENTS.md'),path.join(ctx.cwd,'AGENTS.md')]
     :id==='claude'&&ctx.env.AIROOM_CLAUDE_HOME?[path.join(ctx.env.AIROOM_CLAUDE_HOME,'settings.json'),path.join(ctx.env.AIROOM_CLAUDE_HOME,'CLAUDE.md'),path.join(ctx.cwd,'CLAUDE.md'),path.join(ctx.cwd,'.claude','CLAUDE.md'),path.join(ctx.cwd,'.claude','settings.json'),path.join(ctx.cwd,'.claude','settings.local.json')]:[];
   const value = { cwd: path.resolve(ctx.cwd), provider: id, member: ctx.session.memberId, purpose: ctx.session.purpose,
-    write: ctx.session.writeMode, conversation: ctx.conversation, roomSpeech:plainRoomSpeech(ctx), roomFiles:roomProjectFiles(ctx), autoApprove: ctx.session.autoApprove, permissions: id==='deepseek'?undefined:ctx.settings.permissions[id],
+    write: ctx.session.writeMode, conversation: ctx.conversation, roomAccess:ctx.run.roomAccess, roomSpeech:plainRoomSpeech(ctx), roomFiles:roomProjectFiles(ctx), autoApprove: ctx.session.autoApprove, permissions: id==='deepseek'?undefined:ctx.settings.permissions[id],
     model: ctx.settings.models[id], effort: ctx.settings.efforts[id], persona: ctx.persona,
     network: [ctx.settings.networkMode, ctx.settings.proxyUrl], dsh: dshConnectionIdentity(ctx.settings),
     environment, files: [...new Set([...manifests,...authFiles,...configFiles])].map(fileStamp), extra };
